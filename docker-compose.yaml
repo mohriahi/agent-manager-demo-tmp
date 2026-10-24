@@ -1,0 +1,67 @@
+# The bank's agents and the demo's page, next to the main demo. The agents are
+# registered in Agent Manager as externally hosted agents and send it their
+# traces. run.sh starts it with config.env and secrets.env.
+name: agent-manager
+
+x-agent: &agent
+  restart: unless-stopped
+  mem_limit: 256m
+  extra_hosts:
+    # The ports published on this machine: the main demo's gateways, and
+    # Agent Manager, which takes the traces.
+    - host.docker.internal:host-gateway
+    - default-default.gateway.localhost:host-gateway
+
+services:
+  assistant:
+    <<: *agent
+    build: agents/assistant
+    environment:
+      BANK_NAME: ${BANK_NAME}
+      LLM_URL: ${GATEWAY_URL}${LLM_ROUTE}
+      LLM_KEY: ${LLM_KEY}
+      CARDS_AGENT_URL: http://cards-agent:8000/chat
+      TRAVEL_MONEY_AGENT_URL: ${A2A_GATEWAY_URL}${TRAVEL_MONEY_ROUTE}
+      TRAVEL_INSURANCE_AGENT_URL: ${A2A_GATEWAY_URL}${TRAVEL_INSURANCE_ROUTE}
+      AMP_OTEL_ENDPOINT: ${AMP_OTEL_ENDPOINT}
+      AMP_AGENT_API_KEY: ${ASSISTANT_TRACING_KEY}
+
+  cards-agent:
+    <<: *agent
+    build: agents/cards-agent
+    environment:
+      BANK_NAME: ${BANK_NAME}
+      LLM_URL: ${GATEWAY_URL}${LLM_ROUTE}
+      LLM_KEY: ${LLM_KEY}
+      MCP_URL: ${GATEWAY_URL}${MCP_ROUTE}
+      RELEASE_KEY: ${RELEASE_KEY}
+      AMP_OTEL_ENDPOINT: ${AMP_OTEL_ENDPOINT}
+      AMP_AGENT_API_KEY: ${CARDS_AGENT_TRACING_KEY}
+
+  # The demo's page: the live map, the customer's chat and the release switch.
+  page:
+    image: python:3.12-alpine
+    command: ["python", "-u", "/web/server.py"]
+    restart: unless-stopped
+    mem_limit: 64m
+    volumes:
+      - ./web:/web:ro
+    ports:
+      - "${PAGE_PORT}:8610"
+    extra_hosts:
+      - api.amp.localhost:host-gateway
+      - thunder.amp.localhost:host-gateway
+    environment:
+      BANK_NAME: ${BANK_NAME}
+      ASSISTANT_URL: http://assistant:8000
+      CARDS_AGENT_URL: http://cards-agent:8000
+      RELEASE_KEY: ${RELEASE_KEY}
+      MAIN_DEMO_URL: ${MAIN_DEMO_URL}
+      AMP_CONSOLE_URL: ${AMP_CONSOLE_URL}
+      AMP_API_URL: ${AMP_API_URL}
+      AMP_TOKEN_URL: ${AMP_TOKEN_URL}
+      AMP_CLIENT_ID: ${AMP_CLIENT_ID}
+      AMP_CLIENT_SECRET: ${AMP_CLIENT_SECRET}
+      AMP_ORG: ${AMP_ORG}
+      AMP_PROJECT: ${AMP_PROJECT}
+      AMP_ENVIRONMENT: ${AMP_ENVIRONMENT}
