@@ -13,13 +13,9 @@ import uvicorn
 from crewai import Agent, Crew, Process, Task
 from crewai.llms.providers.anthropic.completion import AnthropicCompletion
 from crewai.tools import tool
-from common import a2a, gateway, service, steps
+from traceloop.sdk.decorators import tool as traced  # shows each call to another agent in Agent Manager
 
-try:  # Agent Manager adds its tracing when it deploys the agent: show each call to another agent in it
-    from traceloop.sdk.decorators import tool as traced
-except ImportError:
-    def traced(name):
-        return lambda function: function
+from common import a2a, gateway, service, steps
 
 TRAVEL_MONEY = os.environ["TRAVEL_MONEY_URL"]
 PARTNER = os.environ["TRAVEL_INSURANCE_URL"]
