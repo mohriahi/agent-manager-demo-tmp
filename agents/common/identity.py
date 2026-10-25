@@ -30,8 +30,9 @@ def token():
 
 
 def callers():
-    """The agents allowed to call this one, as name:client-id pairs. None in a
-    test environment, where Agent Manager's own key check is enough."""
+    """The agents allowed to call this one, as name:client-id pairs. None for
+    the agents Agent Manager runs: its gateway checks the caller before the
+    request gets here."""
     pairs = [pair.split(":", 1) for pair in os.environ.get("ALLOWED_CALLERS", "").split(",") if ":" in pair]
     return {client_id: name for name, client_id in pairs}
 
@@ -40,7 +41,7 @@ def check(authorization):
     """Who is calling: the name and client id of an agent allowed to, with a valid token."""
     allowed = callers()
     if not allowed:
-        return {"caller": "a tester"}
+        return {"caller": "checked by Agent Manager's gateway"}
     if not authorization.startswith("Bearer "):
         raise Refused("No identity: only agents registered in Agent Manager may call this agent.")
     bearer = authorization[len("Bearer "):]
