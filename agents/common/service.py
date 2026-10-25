@@ -23,9 +23,10 @@ class Ask(BaseModel):
 
 def blocked_reply(reply, taken):
     """When Agent Manager stopped the agent part way, the concierge still learns
-    what was done before."""
-    done = ["%s: %s" % (step["name"], step["result"]) for step in taken if step["kind"] == "tool" and step["ok"]]
-    return reply + ("\nDone before that: " + "; ".join(done) if done else "")
+    which steps were done before, but not what they returned: that may be what
+    Agent Manager stopped."""
+    done = [step["name"] for step in taken if step["kind"] == "tool" and step["ok"]]
+    return reply + ("\nDone before that: " + ", ".join(done) if done else "")
 
 
 def create(name, framework, answer):

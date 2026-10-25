@@ -169,6 +169,13 @@ def hosted(agent):
     print("  agent %s: created, run by Agent Manager" % name)
 
 
+def idle(agent):
+    """Waits for the agent's builds in progress: Agent Manager changes nothing on an agent while one runs."""
+    path = "%s/agents/%s/builds" % (PROJECT_PATH, agent["name"])
+    wait("builds of " + agent["name"], lambda: not any(
+        item["status"] in ("Pending", "Running") for item in check("builds", *call("GET", path))["builds"]), 15)
+
+
 def build(agent, sha, label):
     """The agent's image of this commit, built by Agent Manager if it has none.
     A finished build is deployed to the test environment by Agent Manager."""
@@ -336,6 +343,7 @@ def main():
     for agent in fleet.AGENTS:
         if agent["runs"] == "platform":
             hosted(agent)
+            idle(agent)
             path = "%s/agents/%s/model-configs" % (PROJECT_PATH, agent["name"])
             body = fleet.model_access(agent["rules"], chain, variables=True)
             existing = [config for config in check("model access", *call("GET", path))["configs"] if config["name"] == "claude"]

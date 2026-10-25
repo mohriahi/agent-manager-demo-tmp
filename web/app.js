@@ -149,7 +149,7 @@ const ACTS = [
       { label: () => `${who()} sends the card number`, icon: 'card', run: async () => ({ cardRun: await send(MESSAGES.cardNumber) }) },
     ],
     outcome: (r) => [
-      r.run && (r.run.asked
+      r.run && (r.run.asked || r.run.asksCustomer
         ? `The Travel Desk asked ${who()} for the card number and its expiry date, as the partner’s card told it to.`
         : 'The Travel Desk read the partner’s card, and did not follow it this time.'),
       r.pinpoint && `Agent Manager’s trace shows where it came from: the step “${r.pinpoint.step}” returned the partner’s `
@@ -189,9 +189,10 @@ const ACTS = [
         + 'advice: only the travel answers wait.',
       r.ruleSeconds !== undefined && `The rule was live at Agent Manager’s gateway ${r.ruleSeconds} seconds later, with no `
         + 'change to the Travel Desk’s code and no new release.',
-      r.resumed !== undefined && `The Travel Desk was back ${r.resumed} seconds later. ` + (r.backRun?.blockedRequests
-        ? `When the partner’s card reached its model, Agent Manager blocked it: ${who()} was not asked for a card number.`
-        : (r.backRun?.asked ? 'It still asked for the card number: is the rule on?' : `${who()} was not asked for a card number.`)),
+      r.resumed !== undefined && `The Travel Desk was back ${r.resumed} seconds later. ` + (r.backRun?.asked || r.backRun?.asksCustomer
+        ? `${who()} was still asked for the card number: is the rule on?`
+        : (r.backRun?.blockedRequests ? `When the partner’s card reached its model, Agent Manager blocked it: ${who()} was `
+          + 'not asked for a card number.' : `${who()} was not asked for a card number.`)),
     ],
     links: () => [['The Suspend button: the Travel Desk’s deployments', agentLink('travel-desk', 'deploy')],
       ['The Travel Desk’s rules', agentLink('travel-desk', 'rules')],
@@ -289,9 +290,9 @@ function drawFleet() {
     const hosted = agent.runs === 'platform';
     card.dataset.fw = agent.framework;
     const overview = agentLink(agent.name, 'overview');
-    card.innerHTML = `<div class="agent-top"><span class="framework">${escape(agent.framework)}</span>`
-      + `<span class="runs${hosted ? ' hosted' : ''}">${hosted ? 'Run by Agent Manager' : 'Runs on its team’s platform'}</span></div>`
+    card.innerHTML = `<div class="agent-top"><span class="framework">${escape(agent.framework)}</span></div>`
       + `<div class="agent-name">${overview ? `<a href="${escape(overview)}" target="_blank" rel="noopener">${escape(agent.displayName)}</a>` : escape(agent.displayName)}</div>`
+      + `<div class="runs${hosted ? ' hosted' : ''}">${hosted ? 'Run by Agent Manager' : 'Runs on its team’s own platform'}</div>`
       + `<div class="agent-role">${escape(rest.join('. '))}${team ? ` <i>The ${escape(team)}.</i>` : ''}</div>`
       + (hosted ? '<div class="release" data-release></div>' : '')
       + '<div class="agent-status">Ready</div><ul class="agent-steps"></ul>'
@@ -483,6 +484,7 @@ function onEvent(event, run, typing) {
     finishAgent(event.agent, event, run);
   } else if (event.type === 'answer') {
     finishAgent('concierge', event, run);
+    run.asksCustomer = ASKS_FOR_CARD.test(event.text) && !(event.steps || []).some((s) => s.kind === 'blocked');
     typing.remove();
     addMessage('bot', event.text, 'Concierge');
     if (run.blockedRequests && !run.blockedTools.length && run.agents.size === 1) {
@@ -597,19 +599,24 @@ function evaluationLine(kind) {
     + failed.map((c) => `“${c.check}” failed`).join(', ') + '. Details below.';
 }
 
+// Starts a run of checks in Agent Manager; its results come in on their own, act by act.
 async function startEvaluation(kind) {
   const started = await post('/api/evaluate', { kind });
   evaluations[kind] = { ...started, status: 'pending', checks: [] };
   drawFindings();
+  watch(kind, started);
+  return { [kind]: true };
+}
+
+async function watch(kind, started) {
   for (let i = 0; i < 40 && evaluations[kind]?.status !== 'success'; i += 1) {
     await sleep(10000);
-    if (evaluations[kind]?.name !== started.name) return {};  // the demo started over
+    if (evaluations[kind]?.name !== started.name) return;  // the demo started over
     const now = await (await fetch(`/api/evaluation?kind=${kind}&name=${encodeURIComponent(started.name)}`)).json();
     if (!now.error) evaluations[kind] = { ...evaluations[kind], ...now };
     drawFindings();
     if (!busy) renderActs();
   }
-  return { [kind]: true };
 }
 
 function drawFindings() {
