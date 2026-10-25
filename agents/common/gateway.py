@@ -22,6 +22,7 @@ MODEL = os.environ.get("MODEL", "claude-haiku-4-5")
 EFFORT = os.environ.get("EFFORT", "")
 HEADERS = {KEY_HEADER: KEY}
 
+
 def _reason(verdict):
     """A plain-words reason for a block, from the guardrail's own report."""
     report = verdict.get("assessments") or verdict.get("actionReason") or ""
@@ -31,6 +32,8 @@ def _reason(verdict):
         if tool and tool != "name":
             return tool, "the model asked to run %s, which this agent is not allowed to do" % tool
         return None, "the model's answer broke one of this agent's guardrails"
+    if "note to the" in report:
+        return None, "what a third party returned carried an instruction for the agent, which it may not follow"
     if r"\d{4}" in report:
         return None, "the message contained a full card number, which must never reach the model"
     return None, "the request broke one of this agent's guardrails"

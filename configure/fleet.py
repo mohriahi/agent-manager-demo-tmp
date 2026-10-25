@@ -1,5 +1,6 @@
 """The bank's agents as Agent Manager knows them: four teams, four
-frameworks, one model, and the rules Agent Manager applies to each agent.
+frameworks, two of them run by Agent Manager and two on their teams' own
+platform, one model, and the rules Agent Manager applies to each agent.
 Change it here, then run ./run.sh again."""
 
 # The model every agent uses, registered once for the whole bank. Agents never
@@ -29,42 +30,56 @@ def _rule(name, version, **params):
 CARD_NUMBERS = {"enabled": True, "jsonPath": "", "invert": True, "showAssessment": True,
                 "regex": r"\b\d{4}[ -]?\d{4}[ -]?\d{4}[ -]?\d{4}\b"}
 
-# Card actions only: if the model asks to change the customer's package, the
-# gateway stops it.
-PACKAGE_CHANGES = {"enabled": True, "jsonPath": "", "invert": True, "showAssessment": True,
-                   "regex": r'"name"\s*:\s*"change_package"'}
+# Instructions a third party slips to the agents that read its answers, such
+# as the partner's rogue A2A card in act 3. The rule of act 4 stops them.
+THIRD_PARTY_INSTRUCTIONS = {"enabled": True, "jsonPath": "", "invert": True, "showAssessment": True,
+                            "regex": r"(?i)note to the (calling )?agent|ask (them|the customer) for (their|the) full card"}
 
 NO_CARD_NUMBERS = _rule("regex-guardrail", "v1.0.1", request=CARD_NUMBERS)
-
-CARD_ACTIONS_ONLY = _rule("regex-guardrail", "v1.0.1", request=CARD_NUMBERS, response=PACKAGE_CHANGES)
-
-def model_access(rules, environment):
-    """An agent's own way to Claude, with its rules, as Agent Manager stores it."""
-    return {"name": "claude", "type": "llm", "description": "Claude, through Agent Manager's gateway.",
-            "envMappings": {environment: {"providerName": PROVIDER["id"], "configuration": {"policies": rules}}}}
-
 
 # What each agent may spend, in tokens a day.
 DAILY_BUDGET = _rule("token-based-ratelimit", "v1.1.1", totalTokenLimits=[{"count": 500000, "duration": "24h"}])
 
+
+def model_access(rules, environments, variables=False):
+    """An agent's own way to Claude, with its rules, in each environment, as
+    Agent Manager stores it. For the agents it runs, Agent Manager hands the
+    address and the key to the agent in these variables."""
+    access = {"name": "claude", "type": "llm", "description": "Claude, through Agent Manager's gateway.",
+              "envMappings": {env: {"providerName": PROVIDER["id"], "configuration": {"policies": rules}}
+                              for env in environments}}
+    if variables:
+        access["environmentVariables"] = [{"key": "url", "name": "LLM_URL"}, {"key": "apikey", "name": "LLM_KEY"}]
+    return access
+
+
+# Where each agent runs: "platform" for the agents Agent Manager builds from
+# GitHub and runs itself, "external" for the agents on their team's own platform.
 AGENTS = [
-    {"name": "concierge", "displayName": "Concierge", "framework": "LangGraph",
-     "description": "LangGraph, by the digital team. Talks to the customer and hands each part "
-                    "of a request to the specialist that owns it.",
+    {"name": "concierge", "displayName": "Concierge", "framework": "LangGraph", "runs": "external",
+     "description": "LangGraph, by the digital team, on its own platform. Talks to the customer and hands "
+                    "each part of a request to the specialist that owns it.",
      "rules": [NO_CARD_NUMBERS, DAILY_BUDGET]},
-    {"name": "cards-agent", "displayName": "Cards Agent", "framework": "OpenAI Agents SDK",
-     "description": "OpenAI Agents SDK, by the cards team. Orders cards and manages the customer's "
-                    "account with the Core Banking tools, through the MCP Gateway.",
+    {"name": "cards-agent", "displayName": "Cards Agent", "framework": "OpenAI Agents SDK", "runs": "platform",
+     "description": "OpenAI Agents SDK, by the cards team, run by Agent Manager. Orders cards and manages the "
+                    "customer's account with the Core Banking tools, through the MCP Gateway.",
+     "dockerfile": "/cards-agent/Dockerfile", "memory": "256Mi", "settings": ["MCP_URL"],
      "rules": [NO_CARD_NUMBERS, DAILY_BUDGET]},
-    {"name": "travel-desk", "displayName": "Travel Desk", "framework": "CrewAI",
-     "description": "CrewAI, by the travel team. A crew of two that finds the bank's Travel Money Agent "
-                    "and the partner's Travel Insurance Agent by their A2A cards, and asks them.",
+    {"name": "travel-desk", "displayName": "Travel Desk", "framework": "CrewAI", "runs": "platform",
+     "description": "CrewAI, by the travel team, run by Agent Manager. A crew of two that finds the bank's Travel "
+                    "Money Agent and the partner's Travel Insurance Agent by their A2A cards, and asks them.",
+     "dockerfile": "/travel-desk/Dockerfile", "memory": "512Mi", "settings": ["TRAVEL_MONEY_URL", "TRAVEL_INSURANCE_URL"],
      "rules": [NO_CARD_NUMBERS, DAILY_BUDGET]},
-    {"name": "policy-advisor", "displayName": "Policy Advisor", "framework": "LlamaIndex",
-     "description": "LlamaIndex, by the customer care team. Answers from the bank's product "
+    {"name": "policy-advisor", "displayName": "Policy Advisor", "framework": "LlamaIndex", "runs": "external",
+     "description": "LlamaIndex, by the customer care team, on its own platform. Answers from the bank's product "
                     "catalogue, and only from it.",
      "rules": [NO_CARD_NUMBERS, DAILY_BUDGET]},
 ]
+
+# The rule the risk team adds in act 4, as it would in the console: the Travel
+# Desk's model calls may not carry a third party's instructions. ./run.sh takes it off.
+LIVE_RULE = {"agent": "travel-desk", "name": "No instructions from third parties", "rules": [
+    NO_CARD_NUMBERS, DAILY_BUDGET, _rule("regex-guardrail", "v1.0.1", request=THIRD_PARTY_INSTRUCTIONS)]}
 
 # Agents of other companies the bank's agents talk to. Agent Manager knows
 # them too, so the fleet has no blind spot; they run, and are traced, elsewhere.
@@ -73,10 +88,6 @@ PARTNERS = [
      "description": "Run by the bank's travel insurance partner, reached over A2A through the A2A Gateway. "
                     "The Travel Desk asks it for cover."},
 ]
-
-# The rule the demo adds while it runs, from the page, as a risk officer would
-# in the console: the Cards Agent may act on cards only. ./run.sh takes it off.
-LIVE_RULE = {"agent": "cards-agent", "name": "Card actions only", "rules": [CARD_ACTIONS_ONLY, DAILY_BUDGET]}
 
 # Agent Manager's own checks, in Python. Did the agent change the customer's
 # package when nobody asked? Did Agent Manager have to block one of its steps?
@@ -191,7 +202,16 @@ INVESTIGATION = {"agent": "travel-desk", "minutes": 15, "evaluators": [
 # Room for the judge to think before it writes its verdict.
 JUDGE = {"model": "gemini-2.5-flash", "max_tokens": 8192}
 
-# Every 5 minutes, Agent Manager scores each agent's latest traces.
+# The bar a new version must meet before it is promoted to production: the
+# bank's checks, run by Agent Manager on what the version did in the test
+# environment. v2 of the Cards Agent is the commit whose message starts so.
+READINESS = {"agent": "cards-agent", "minutes": 20, "v2": "Cards Agent v2", "evaluators": [
+    {"identifier": NO_UNASKED_CHANGE["identifier"], "displayName": "No unasked account change"},
+    {"identifier": "instruction_following", "displayName": "Follows its instructions", "config": JUDGE},
+]}
+
+# Every 10 minutes, Agent Manager scores each agent's latest traces.
+EVERY = 10
 MONITORS = {
     "concierge": [
         {"identifier": "helpfulness", "displayName": "Helpful answers", "config": JUDGE},

@@ -54,6 +54,8 @@ a { color: inherit; }
 .eyebrow { margin: 0 0 8px; color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
 .hero h1 { margin: 0 auto; max-width: 900px; font-size: 34px; line-height: 1.15; font-weight: 800; letter-spacing: -.01em; }
 .lede { margin: 10px auto 0; max-width: 860px; color: var(--text-muted); font-size: 16px; line-height: 1.55; }
+.quote { margin: 12px auto 0; max-width: 860px; font-size: 14px; font-style: italic; color: var(--text); }
+.quote span { font-style: normal; font-weight: 700; color: var(--text-muted); margin-left: 4px; }
 
 .layout { display: grid; grid-template-columns: 350px minmax(0, 1fr) 380px; gap: 18px; align-items: start; }
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
@@ -78,6 +80,15 @@ a { color: inherit; }
 .step-body { display: none; padding: 0 16px 16px 56px; }
 .step.is-open .step-body { display: block; }
 .step-text { margin: 0 0 12px; color: var(--text-muted); font-size: 14px; line-height: 1.5; }
+/* Who asks the question this act answers, in their own words. */
+.voice { margin: 0 0 12px; padding: 0 0 0 12px; border-left: 3px solid var(--accent); font-size: 14px; font-style: italic;
+  line-height: 1.45; }
+.voice span { display: block; margin-bottom: 3px; font-style: normal; font-size: 11.5px; font-weight: 800; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--accent); }
+/* Why it matters, with the figure behind it. */
+.value { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--dark); color: var(--on-dark); }
+.value p { margin: 0; font-size: 14px; font-weight: 700; line-height: 1.4; }
+.value small { display: block; margin-top: 4px; font-size: 12px; opacity: .75; }
 .step-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .btn { display: inline-flex; align-items: center; gap: 7px; padding: 9px 14px; border-radius: 999px; border: 1px solid var(--dark);
   background: var(--dark); color: var(--on-dark); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
@@ -136,8 +147,14 @@ a { color: inherit; }
 .agent-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .framework { padding: 3px 9px; border-radius: 999px; background: var(--fw); color: var(--on-dark); font-size: 11px; font-weight: 800;
   letter-spacing: .02em; white-space: nowrap; }
-.version { font-size: 12px; font-weight: 800; color: var(--text-muted); }
-.version.is-new { color: var(--bad); }
+/* Where an agent runs, and for the ones Agent Manager runs, which build runs where. */
+.runs { font-size: 11px; font-weight: 700; color: var(--text-muted); text-align: right; }
+.runs.hosted { color: var(--accent); }
+.release { display: grid; gap: 2px; margin-top: 8px; font-size: 12px; font-weight: 700; }
+.release span { display: inline-flex; align-items: center; gap: 5px; }
+.release svg { width: 13px; height: 13px; flex: none; }
+.release .bad { color: var(--bad); }
+.release .trial { color: var(--text-muted); }
 .agent-name { margin-top: 8px; font-size: 16px; font-weight: 800; }
 .agent-name a { text-decoration: none; }
 .agent-name a:hover { text-decoration: underline; }
@@ -250,10 +267,14 @@ a { color: inherit; }
 
 /* What Agent Manager found, and Monday's report. */
 .findings, .report { margin-top: 18px; }
-.finding-list { padding: 16px 18px 18px; display: grid; gap: 12px; }
+.finding-list { padding: 16px 18px 18px; display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+.finding-group { display: grid; gap: 10px; align-content: start; }
+.finding-group h3 { margin: 0; font-size: 14px; }
 .finding-list .when { margin: 0; color: var(--text-muted); font-size: 14px; }
 .finding { display: flex; gap: 12px; padding: 12px 14px; border-radius: 14px; background: var(--bad-soft); }
 .finding > svg { flex: none; width: 22px; height: 22px; color: var(--bad); }
+.finding.ok { background: var(--ok-soft); }
+.finding.ok > svg, .finding.ok small { color: var(--ok); }
 .finding small { margin-left: 8px; color: var(--bad); font-size: 12px; font-weight: 700; }
 .finding p { margin: 4px 0 0; font-size: 14px; line-height: 1.45; }
 .report-body { padding: 16px 18px 18px; overflow-x: auto; }

@@ -14,10 +14,12 @@ SECRETS = HERE / "secrets.env"
 
 SCOPES = " ".join("amp:" + scope for scope in (
     "project:create", "project:read", "agent:create", "agent:read", "agent:update", "agent:delete",
-    "agent:token-manage", "agent-identity:create", "agent-identity:read", "agent-identity:update", "org:view", "gateway:read", "llm-provider:create", "llm-provider:read", "llm-provider:connect",
+    "agent:token-manage", "agent:build", "agent:env-production", "agent:env-non-production", "agent:suspend",
+    "agent-identity:create", "agent-identity:read", "agent-identity:update", "org:view", "environment:read",
+    "gateway:read", "llm-provider:create", "llm-provider:read", "llm-provider:connect",
     "llm-provider:configure-guardrail", "llm-provider:deploy", "llm-provider:api-key-manage",
     "evaluator:create", "evaluator:read", "evaluator:update", "monitor:create", "monitor:read", "monitor:update",
-    "agent:api-key-manage"))
+    "monitor:delete", "agent:api-key-manage", "deployment-pipeline:read"))
 
 
 def read_env(path):
@@ -32,7 +34,7 @@ def read_env(path):
 
 
 CONF = read_env(HERE / "config.env")
-ORG, PROJECT, ENV = CONF["AMP_ORG"], CONF["AMP_PROJECT"], CONF["AMP_ENVIRONMENT"]
+ORG, PROJECT, ENV, TRIAL = CONF["AMP_ORG"], CONF["AMP_PROJECT"], CONF["AMP_ENVIRONMENT"], CONF["AMP_TRIAL_ENVIRONMENT"]
 PROJECT_PATH = "/orgs/%s/projects/%s" % (ORG, PROJECT)
 
 _token = []

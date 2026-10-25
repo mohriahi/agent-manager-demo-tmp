@@ -28,14 +28,15 @@
 <main class="page">
   <section class="hero">
     <p class="eyebrow">WSO2 Agent Manager</p>
-    <h1>Without a control plane, an AI incident is a crisis. With Agent Manager, it is a ticket.</h1>
-    <p class="lede">Four teams, four frameworks and a partner's agent serve the bank's customers. Follow one evening,
-      and see each moment without Agent Manager, and with it.</p>
+    <h1>Agents are powerful because they decide for themselves. That is exactly why they need a control plane.</h1>
+    <p class="lede">One day at the bank: four teams, four frameworks, two runtimes and a partner’s agent. Each moment
+      without Agent Manager, and with it, in its console.</p>
+    <p class="quote">“Deploying AI agents without an agent management platform is like driving a car with no brakes.” <span>Gartner</span></p>
   </section>
 
   <div class="layout">
-    <aside class="story" aria-label="The evening, act by act">
-      <div class="story-head"><h2 class="section-title">One evening at the bank</h2>
+    <aside class="story" aria-label="The day, act by act">
+      <div class="story-head"><h2 class="section-title">One day at the bank</h2>
         <button type="button" class="link-button" id="start-over">Start over</button></div>
       <ol class="steps" id="steps"></ol>
     </aside>
@@ -51,7 +52,7 @@
             <small data-account="package"></small><small data-account="card"></small></div></div>
           <div class="agent" data-agent="concierge"></div>
           <a class="box registry" id="registry-link" target="_blank" rel="noopener"><span class="icon" data-icon="fleet"></span>
-            <div><b>Registered in Agent Manager</b><small>4 agents and a partner's, each with its own identity</small></div></a>
+            <div><b>One inventory in Agent Manager</b><small>4 agents and a partner’s, 2 run by Agent Manager, each with its own identity</small></div></a>
         </div>
         <div class="fan" aria-hidden="true"><span></span><span></span><span></span></div>
         <div class="lane lane-specialists">
@@ -62,15 +63,16 @@
         <div class="gateway" id="gateway">
           <div class="gateway-head">
             <div class="gateway-title"><span class="icon" data-icon="shield"></span>
-              <div><b>Agent Manager</b><small>Every model call of every agent goes through it</small></div></div>
+              <div><b>Agent Manager</b><small>Who may call whom, every model call, every step</small></div></div>
             <a class="model" id="model-link" target="_blank" rel="noopener"><span class="icon" data-icon="sparkles"></span>
               <div><b id="model-name">Claude</b><small>Registered once for the bank</small></div></a>
           </div>
           <ul class="rules">
             <li><span class="icon" data-icon="key"></span>Its own identity and key per agent</li>
+            <li data-rule="callers"><span class="icon" data-icon="lock"></span>Only the Concierge may command the specialists</li>
             <li data-rule="card-number"><span class="icon" data-icon="card"></span>No card numbers to the model</li>
-            <li data-rule="package" class="is-off"><span class="icon" data-icon="ban"></span>Cards Agent: card actions only</li>
-            <li data-rule="suspended" class="is-off"><span class="icon" data-icon="unplug"></span><span id="suspended-label">Revoked keys: none</span></li>
+            <li data-rule="third-party" class="is-off"><span class="icon" data-icon="ban"></span>Travel Desk: no third-party instructions</li>
+            <li data-rule="suspended" class="is-off"><span class="icon" data-icon="pause"></span><span id="suspended-label">Suspended: none</span></li>
             <li><span class="icon" data-icon="gauge"></span>500k tokens a day each</li>
             <li><span class="icon" data-icon="activity"></span>Every step traced and checked</li>
           </ul>
@@ -82,15 +84,15 @@
             <a class="route" data-via="mcp" id="mcp-link" target="_blank" rel="noopener"><span class="icon" data-icon="mcp"></span>
               <div><b>MCP Gateway</b><small>Core Banking: account, packages, cards</small></div></a>
             <a class="route" data-via="a2a" id="a2a-link" target="_blank" rel="noopener"><span class="icon" data-icon="bot"></span>
-              <div><b>A2A Gateway</b><small>The bank's Travel Money Agent, and the partner's Travel Insurance Agent</small>
-                <small class="partner-state" id="partner-state">The partner's card: vetted by the gateway</small></div></a>
+              <div><b>A2A Gateway</b><small>The bank’s Travel Money Agent, and the partner’s Travel Insurance Agent</small>
+                <small class="partner-state" id="partner-state">The partner’s card: vetted by the gateway</small></div></a>
           </div>
         </div>
       </div>
     </section>
 
     <section class="panel chat" aria-label="The customer's chat">
-      <header class="panel-head"><h2 class="section-title">The customer's chat with the bank</h2></header>
+      <header class="panel-head"><h2 class="section-title">The customer’s chat with the bank</h2></header>
       <div class="messages" id="messages"></div>
       <form class="composer" id="composer">
         <input id="input" autocomplete="off" placeholder="Write as the customer...">
@@ -100,18 +102,18 @@
   </div>
 
   <section class="panel findings" id="findings" aria-label="What Agent Manager found" hidden>
-    <header class="panel-head"><h2 class="section-title">What Agent Manager found</h2><span class="scores-note" id="findings-note"></span></header>
+    <header class="panel-head"><h2 class="section-title">What Agent Manager found</h2></header>
     <div class="finding-list" id="finding-list"></div>
   </section>
 
   <section class="panel report" id="report" aria-label="Monday's report" hidden>
-    <header class="panel-head"><h2 class="section-title">Monday 9:00, the risk committee's report, from Agent Manager</h2></header>
+    <header class="panel-head"><h2 class="section-title">Monday 9:00, the risk committee’s report, from Agent Manager</h2></header>
     <div class="report-body" id="report-body"></div>
   </section>
 
   <section class="panel scores" id="scores" aria-label="Agent Manager's scores">
     <header class="panel-head">
-      <h2 class="section-title">What Agent Manager scores, every 5 minutes</h2>
+      <h2 class="section-title">What Agent Manager scores, every 10 minutes, in production</h2>
       <span class="scores-note" id="scores-note"></span>
     </header>
     <div class="score-grid" id="score-grid"></div>

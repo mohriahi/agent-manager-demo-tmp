@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""The demo's page: the customer's chat, the fleet at work, and for every
-act the screen of Agent Manager that shows it. It relays the Concierge's
-steps as they happen, and makes the risk team's moves through Agent
-Manager's API: a live rule, a suspension, an investigation, a report.
+"""The demo's page: the customer's chat, the bank's agents, and for every act
+the screen of Agent Manager that shows it. It relays the Concierge's steps as
+they happen, and makes the bank's moves through Agent Manager's API, as its
+teams would in the console: try a new version, check it against the bank's
+bar, suspend an agent, add a rule, investigate, report.
+
+It also plays the partner's network in the incident: the Travel Desk reaches
+the partner's agent through it, and gets either the card the gateway vetted
+or the partner's own.
 
 Python standard library only, so the stock Python image runs it as is. The
 fleet comes from configure/fleet.py, the same file that sets Agent Manager up."""
@@ -26,24 +31,31 @@ import fleet  # noqa: E402
 
 ENV = os.environ
 CONSOLE = ENV["AMP_CONSOLE_URL"].rstrip("/")
-ORG, PROJECT, ENVIRONMENT = ENV["AMP_ORG"], ENV["AMP_PROJECT"], ENV["AMP_ENVIRONMENT"]
+ORG, PROJECT = ENV["AMP_ORG"], ENV["AMP_PROJECT"]
+ENVIRONMENT, TRIAL = ENV["AMP_ENVIRONMENT"], ENV["AMP_TRIAL_ENVIRONMENT"]
 PROJECT_PAGE = "%s/org/%s/project/%s" % (CONSOLE, ORG, PROJECT)
 API_PROJECT = "/orgs/%s/projects/%s" % (ORG, PROJECT)
 STATIC = {"/": "index.html", "/app.js": "app.js", "/styles.css": "styles.css"}
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css"}
-SCOPES = ("amp:agent:read amp:agent:update amp:llm-provider:read amp:llm-provider:connect "
-          "amp:llm-provider:configure-guardrail amp:monitor:create amp:monitor:read amp:monitor:score-read "
-          "amp:observability:trace-read amp:agent:api-key-manage")
-SECRETS = Path("/secrets.env")
+SCOPES = ("amp:project:read amp:agent:read amp:agent:update amp:agent:suspend amp:agent:env-production "
+          "amp:agent:env-non-production amp:environment:read amp:org:view amp:llm-provider:read "
+          "amp:llm-provider:connect amp:llm-provider:configure-guardrail amp:monitor:create amp:monitor:read "
+          "amp:monitor:score-read amp:observability:trace-read")
+HOSTED = [agent["name"] for agent in fleet.AGENTS if agent["runs"] == "platform"]
+TRAVEL_DESK = fleet.LIVE_RULE["agent"]
+PLANS = {"readiness": (fleet.READINESS, TRIAL), "incident": (fleet.INVESTIGATION, ENVIRONMENT)}
 
 
 def agent_page(agent, *parts):
     return "/".join(("%s/agents/%s" % (PROJECT_PAGE, agent),) + parts)
 
 
-def trace_page(agent, trace_id):
-    return agent_page(agent, "environment", ENVIRONMENT, "observability",
-                      "traces?timeRange=1d&selectedTrace=%s" % trace_id)
+def env_page(agent, environment, *parts):
+    return agent_page(agent, "environment", environment, *parts)
+
+
+def trace_page(agent, trace_id, environment=ENVIRONMENT):
+    return env_page(agent, environment, "observability", "traces?timeRange=1d&selectedTrace=%s" % trace_id)
 
 
 _token = {"value": None, "until": 0}
@@ -69,97 +81,100 @@ def amp(path, method="GET", body=None):
     return json.loads(urllib.request.urlopen(request, timeout=30).read() or b"{}")
 
 
-def model_config(agent):
-    """The path of an agent's access to the model, and its rules now."""
-    base = "%s/agents/%s/model-configs" % (API_PROJECT, agent)
-    path = "%s/%s" % (base, amp(base)["configs"][0]["uuid"])
-    return path, amp(path)["envMappings"][ENVIRONMENT]["configuration"]
+def call(url, body=None, headers=None, timeout=10):
+    """(HTTP status, JSON reply) of one call to an agent."""
+    request = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None,
+                                     headers={"Content-Type": "application/json", **(headers or {})})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status, json.loads(response.read() or b"{}")
+    except urllib.error.HTTPError as exc:
+        text = exc.read().decode("utf-8", "replace")
+        try:
+            return exc.code, json.loads(text)
+        except ValueError:
+            return exc.code, {"error": text[:200]}
+    except (urllib.error.URLError, OSError) as exc:
+        return 0, {"error": str(exc)}
 
 
-def checks_answers(policies):
-    """Whether these rules check the model's answers: the live rule does."""
-    return any("response" in item.get("params", {}) for policy in policies for item in policy["paths"])
+# Where each build runs, and the Suspend button.
+
+def releases():
+    """For each agent Agent Manager runs: in each environment, its state and
+    the commit of the build that runs there."""
+    found = {}
+    for agent in HOSTED:
+        found[agent] = {}
+        for environment, deployment in amp("%s/agents/%s/deployments" % (API_PROJECT, agent)).items():
+            image = deployment.get("imageId") or ""
+            found[agent][environment] = {"status": deployment.get("status"), "name": deployment.get("environmentDisplayName"),
+                                         "commit": image.rsplit("-", 1)[-1][:7] if image else None}
+    return found
 
 
-def control():
-    """What applies right now: in Agent Manager, which agents have no key to
-    the model and whether the live rule is on; in the agents, the Cards Agent's
-    version and the partner's card the Travel Desk reads."""
-    status, connected = call(ENV["TRAVEL_DESK_URL"] + "/partner")
-    return {"revoked": {agent["name"]: not active_keys(agent["name"]) for agent in fleet.AGENTS},
-            "rule": checks_answers(model_config(fleet.LIVE_RULE["agent"])[1].get("policies", [])),
-            "release": release(), "partner": connected.get("partner", "vetted")}
+def state(agent, environment=ENVIRONMENT):
+    return amp("%s/agents/%s/deployments" % (API_PROJECT, agent)).get(environment, {}).get("status")
 
 
-def apply(rule):
-    """Puts the live rule on the Cards Agent in Agent Manager, or takes it off,
-    then waits until its gateway applies it. Returns how long that took."""
-    agent = fleet.LIVE_RULE["agent"]
+def suspend(on):
+    """Suspends the Travel Desk in production, as the console's Suspend button
+    does, or deploys it again. Waits until it is done; returns how long it took."""
     started = time.time()
-    path, _ = model_config(agent)
-    rules = fleet.LIVE_RULE["rules"] if rule else next(item for item in fleet.AGENTS if item["name"] == agent)["rules"]
-    amp(path, "PUT", fleet.model_access(rules, ENVIRONMENT))
+    amp("%s/agents/%s/deployments/state" % (API_PROJECT, TRAVEL_DESK), "POST",
+        {"environment": ENVIRONMENT, "state": "Undeploy" if on else "Active"})
+    time.sleep(2)
+    target = "suspended" if on else "active"
+    while time.time() - started < 300 and state(TRAVEL_DESK) != target:
+        time.sleep(2)
+    return round(time.time() - started)
+
+
+# The rule the risk team adds in act 4, on the Travel Desk's model calls.
+
+def model_config(agent):
+    """The path of an agent's access to the model, and how Agent Manager has it now."""
+    base = "%s/agents/%s/model-configs" % (API_PROJECT, agent)
+    config = next(item for item in amp(base)["configs"] if item["name"] == "claude")
+    path = "%s/%s" % (base, config["uuid"])
+    return path, amp(path)
+
+
+def rule_on(current=None):
+    current = current or model_config(TRAVEL_DESK)[1]
+    policies = current["envMappings"][ENVIRONMENT]["configuration"].get("policies", [])
+    return fleet.THIRD_PARTY_INSTRUCTIONS["regex"] in json.dumps(policies)
+
+
+def apply(on):
+    """Puts the live rule on the Travel Desk in production, or takes it off,
+    then waits until its gateway applies it. Returns how long that took."""
+    started = time.time()
+    path, current = model_config(TRAVEL_DESK)
+    rules = fleet.LIVE_RULE["rules"] if on else next(item for item in fleet.AGENTS if item["name"] == TRAVEL_DESK)["rules"]
+    environments = list(current["envMappings"])
+    body = fleet.model_access(rules, [ENVIRONMENT], variables=True)
+    for environment in environments:  # the other environments keep their rules
+        if environment != ENVIRONMENT:
+            body["envMappings"][environment] = {"providerName": fleet.PROVIDER["id"], "configuration": {
+                "policies": current["envMappings"][environment]["configuration"].get("policies", [])}}
+    amp(path, "PUT", body)
     while time.time() - started < 60:
         time.sleep(2)
-        now = model_config(agent)[1]
-        if now.get("status") == "active" and checks_answers(now.get("policies", [])) == rule:
+        now = model_config(TRAVEL_DESK)[1]
+        if rule_on(now) == on and now["envMappings"][ENVIRONMENT]["configuration"].get("status", "active") == "active":
             break
     time.sleep(3)  # the gateway takes the new rules a moment after Agent Manager reports them
     return round(time.time() - started)
 
 
-def keys_path(agent):
-    base = "%s/agents/%s/model-configs" % (API_PROJECT, agent)
-    return "%s/%s/environments/%s/api-keys" % (base, amp(base)["configs"][0]["uuid"], ENVIRONMENT)
+# What Agent Manager recorded and found: traces, checks, scores.
 
-
-def active_keys(agent):
-    return [key for key in amp(keys_path(agent)).get("keys", []) if key.get("status") == "active"]
-
-
-def revoke(agent):
-    """Revokes an agent's key to the model in Agent Manager: wherever the agent
-    runs, it can no longer reach the model. Returns how long that took."""
-    started = time.time()
-    for key in active_keys(agent):
-        amp("%s/%s" % (keys_path(agent), key["name"]), "DELETE")
-    time.sleep(3)  # the gateways drop the key a moment after Agent Manager
-    return round(time.time() - started)
-
-
-def new_key(agent):
-    """A new key to the model from Agent Manager, handed to the agent and kept
-    in secrets.env, as the agent's team would. Returns how long that took."""
-    started = time.time()
-    for key in active_keys(agent):
-        amp("%s/%s" % (keys_path(agent), key["name"]), "DELETE")
-    display = next(item["displayName"] for item in fleet.AGENTS if item["name"] == agent)
-    secret = amp(keys_path(agent), "POST", {"displayName": display + " key"})["apiKey"]
-    status, _ = call(AGENT_URLS[agent] + "/key", {"key": secret}, OPERATOR)
-    if status != 200:
-        raise RuntimeError("The %s did not take its new key." % display)
-    variable = "%s_LLM_KEY=" % agent.upper().replace("-", "_")
-    lines = SECRETS.read_text().splitlines()
-    SECRETS.write_text("\n".join(variable + secret if line.startswith(variable) else line for line in lines) + "\n")
-    time.sleep(3)  # the gateways take the key a moment after Agent Manager
-    return round(time.time() - started)
-
-
-def reconnect():
-    """Gives a new key to every agent without a working one: revoked in Agent
-    Manager, or not the one the agent holds."""
-    for agent in AGENT_URLS:
-        active = active_keys(agent)
-        status, health = call(AGENT_URLS[agent] + "/health")
-        if not any(key["maskedApiKey"][-4:] == health.get("key") for key in active):
-            new_key(agent)
-
-
-def traces(agent, minutes, limit=50):
+def traces(agent, minutes, limit=50, environment=ENVIRONMENT):
     """An agent's traces of the last minutes, newest first, from Agent Manager."""
     now = time.time()
     query = urllib.parse.urlencode({
-        "organization": ORG, "project": PROJECT, "agent": agent, "environment": ENVIRONMENT, "limit": str(limit),
+        "organization": ORG, "project": PROJECT, "agent": agent, "environment": environment, "limit": str(limit),
         "sortOrder": "desc", "startTime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - minutes * 60)),
         "endTime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now + 60))})
     return amp_traces("/traces?" + query).get("traces", []), query
@@ -205,16 +220,18 @@ def pinpoint(agent, trace_id):
     return None
 
 
-def investigate():
-    """Asks Agent Manager to investigate the last minutes of an agent's traffic,
-    with the bank's own checks: a one-off run, kept in the console."""
-    plan = fleet.INVESTIGATION
+def evaluate(kind):
+    """Asks Agent Manager to run some of the bank's checks on the last minutes
+    of an agent's traffic: v2's readiness in the test environment, or the
+    incident in production. A one-off run, kept in the console."""
+    plan, environment = PLANS[kind]
     now = time.time()
-    name = "incident-" + time.strftime("%d%H%M", time.gmtime(now))
+    name = "%s-%s" % (kind, time.strftime("%d%H%M%S", time.gmtime(now)))
+    titles = {"incident": "Incident %s investigation", "readiness": "Readiness check %s"}
     body = {
-        "name": name, "displayName": "Incident " + time.strftime("%H:%M", time.gmtime(now)) + " investigation",
-        "description": "What the Travel Desk was told, and what it asked for.", "environmentName": ENVIRONMENT,
-        "type": "past", "evaluators": plan["evaluators"],
+        "name": name, "displayName": titles[kind] % time.strftime("%H:%M", time.gmtime(now)),
+        "description": "The bank's checks, on the last %d minutes." % plan["minutes"], "environmentName": environment,
+        "type": "past", "evaluators": plan["evaluators"], "llmProvider": {"providerName": fleet.JUDGE_PROVIDER["id"]},
         "traceStart": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - plan["minutes"] * 60)),
         "traceEnd": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))}
     for attempt in (1, 2):  # Agent Manager now and then fails a first try
@@ -227,28 +244,37 @@ def investigate():
             if attempt == 2 or exc.code < 500:
                 raise
             time.sleep(3)
-    return {"name": name, "url": agent_page(plan["agent"], "environment", ENVIRONMENT, "evaluation", "monitor", "view", name)}
+    return {"kind": kind, "name": name, "url": env_page(plan["agent"], environment, "evaluation", "monitor", "view", name)}
 
 
-def investigation(name):
-    """Where an investigation stands, and the steps its checks found wrong."""
-    agent = fleet.INVESTIGATION["agent"]
+def findings(kind, name):
+    """Where a run of checks stands, and for each check: how many traces it
+    failed, of how many, with its explanation and the latest failing trace."""
+    plan, environment = PLANS[kind]
+    agent = plan["agent"]
     runs = amp("%s/agents/%s/monitors/%s/runs" % (API_PROJECT, agent, name)).get("runs", [])
     status = runs[0]["status"] if runs else "pending"
     found = {}
     if status == "success":
-        for item in traces(agent, fleet.INVESTIGATION["minutes"] + 10)[0]:
+        for item in traces(agent, plan["minutes"] + 10, environment=environment)[0]:
             scores = amp("%s/agents/%s/traces/%s/scores" % (API_PROJECT, agent, item["traceId"])).get("monitors", [])
             for monitor in scores:
                 if monitor.get("monitorName") != name:
                     continue
-                for evaluator in monitor.get("evaluators", []):
-                    if evaluator.get("score") == 0:  # one finding per check, with its latest trace
-                        finding = found.setdefault(evaluator["evaluatorName"], {
-                            "check": evaluator["evaluatorName"], "explanation": evaluator.get("explanation", ""),
-                            "traceUrl": trace_page(agent, item["traceId"]), "traces": 0})
-                        finding["traces"] += 1
-    return {"status": status, "findings": list(found.values())}
+                # Trace-level checks score the trace, agent-level ones its agent's span.
+                for evaluator in monitor.get("evaluators", []) + [item for span in monitor.get("spans", [])
+                                                                   for item in span.get("evaluators", [])]:
+                    if evaluator.get("score") is None:
+                        continue
+                    entry = found.setdefault(evaluator["evaluatorName"], {
+                        "check": evaluator["evaluatorName"], "traces": 0, "failed": 0, "explanation": "", "traceUrl": None})
+                    entry["traces"] += 1
+                    if evaluator["score"] < 0.5:
+                        entry["failed"] += 1
+                        if not entry["traceUrl"]:  # traces come newest first
+                            entry.update(explanation=evaluator.get("explanation", ""),
+                                         traceUrl=trace_page(agent, item["traceId"], environment))
+    return {"kind": kind, "status": status, "checks": list(found.values())}
 
 
 def report():
@@ -260,83 +286,11 @@ def report():
         usage = [item.get("tokenUsage") or {} for item in listed]
         blocked = sum(1 for item in listed if "Agent Manager blocked" in (item.get("output") or ""))
         rows.append({"agent": agent["name"], "displayName": agent["displayName"], "framework": agent["framework"],
-                     "requests": len(listed), "tokens": sum(item.get("totalTokens", 0) for item in usage),
+                     "runs": agent["runs"], "requests": len(listed), "tokens": sum(item.get("totalTokens", 0) for item in usage),
                      "input": sum(item.get("inputTokens", 0) for item in usage),
                      "output": sum(item.get("outputTokens", 0) for item in usage), "blocked": blocked,
                      "errors": sum((item.get("status") or {}).get("errorCount", 0) for item in listed)})
-    return {"agents": rows, "scores": checks()}
-
-
-_links = {}
-
-
-def links():
-    """Where each part of the demo lives in the console. Read again every
-    minute: the ids behind some screens change when ./run.sh sets them up again."""
-    if time.time() - _links.get("at", 0) > 60:
-        provider = amp("/orgs/%s/llm-providers/%s" % (ORG, fleet.PROVIDER["id"]))
-        agents = {}
-        for agent in fleet.AGENTS:
-            name = agent["name"]
-            configs = amp("%s/agents/%s/model-configs" % (API_PROJECT, name))["configs"]
-            rules = agent_page(name, "configure")
-            if configs:
-                rules = agent_page(name, "configure", "llm-providers", "view", configs[0]["uuid"])
-            agents[name] = {"overview": agent_page(name), "rules": rules, "agentId": agent_page(name, "agent-id"),
-                            "traces": agent_page(name, "environment", ENVIRONMENT, "observability", "traces?timeRange=1d"),
-                            "checks": agent_page(name, "environment", ENVIRONMENT, "evaluation", "monitor", "view",
-                                                 "%s-checks" % name)}
-        _links.update(at=time.time(), fleet=PROJECT_PAGE, agents=agents,
-                      model="%s/org/%s/llm-providers/view/%s" % (CONSOLE, ORG, provider["uuid"]))
-    return {key: value for key, value in _links.items() if key != "at"}
-
-
-def call(url, body=None, headers=None, timeout=10):
-    """(HTTP status, JSON reply) of one call to an agent."""
-    request = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None,
-                                     headers={"Content-Type": "application/json", **(headers or {})})
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return response.status, json.loads(response.read() or b"{}")
-    except urllib.error.HTTPError as exc:
-        text = exc.read().decode("utf-8", "replace")
-        try:
-            return exc.code, json.loads(text)
-        except ValueError:
-            return exc.code, {"error": text[:200]}
-    except (urllib.error.URLError, OSError) as exc:
-        return 0, {"error": str(exc)}
-
-
-def account():
-    """The customer's account as it starts in every new chat, read through the
-    main demo's MCP Gateway (each chat has its own MCP session)."""
-    context = ssl._create_unverified_context()  # the demo gateway's own certificate
-    headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
-
-    def post(body, session=None):
-        request = urllib.request.Request(ENV["MCP_URL"], data=json.dumps(body).encode(),
-                                         headers={**headers, **({"mcp-session-id": session} if session else {})})
-        return urllib.request.urlopen(request, context=context, timeout=15)
-
-    with post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
-            "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "demo-page", "version": "1.0"}}}) as reply:
-        session = reply.headers.get("mcp-session-id")
-    post({"jsonrpc": "2.0", "method": "notifications/initialized"}, session).close()
-    with post({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-               "params": {"name": "get_account_details", "arguments": {}}}, session) as reply:
-        result = json.loads(reply.read())["result"]
-    return json.loads("".join(block.get("text", "") for block in result["content"]))
-
-
-OPERATOR = {"X-Release-Key": ENV.get("RELEASE_KEY", "")}
-AGENT_URLS = {"concierge": ENV["CONCIERGE_URL"], "cards-agent": ENV["CARDS_AGENT_URL"],
-              "travel-desk": ENV["TRAVEL_DESK_URL"], "policy-advisor": ENV["POLICY_ADVISOR_URL"]}
-
-
-def release():
-    status, reply = call(ENV["CARDS_AGENT_URL"] + "/health")
-    return reply.get("version") if status == 200 else None
+    return {"agents": rows, "scores": checks(), "releases": releases()}
 
 
 def scores(agent):
@@ -369,9 +323,137 @@ def checks():
         return _checks["value"]
 
 
+_links = {}
+
+
+def links():
+    """Where each part of the demo lives in the console. Read again every
+    minute: the ids behind some screens change when ./run.sh sets them up again."""
+    if time.time() - _links.get("at", 0) > 60:
+        provider = amp("/orgs/%s/llm-providers/%s" % (ORG, fleet.PROVIDER["id"]))
+        agents = {}
+        for agent in fleet.AGENTS:
+            name = agent["name"]
+            configs = amp("%s/agents/%s/model-configs" % (API_PROJECT, name))["configs"]
+            rules = agent_page(name, "configure")
+            if configs:
+                rules = agent_page(name, "configure", "llm-providers", "view", configs[0]["uuid"])
+            agents[name] = {"overview": agent_page(name), "rules": rules, "agentId": agent_page(name, "agent-id"),
+                            "deploy": agent_page(name, "deployment"), "builds": agent_page(name, "build"),
+                            "security": env_page(name, ENVIRONMENT, "security"),
+                            "tryTrial": env_page(name, TRIAL, "tryOut", "chat"),
+                            "logs": env_page(name, ENVIRONMENT, "observability", "logs"),
+                            "traces": env_page(name, ENVIRONMENT, "observability", "traces?timeRange=1d"),
+                            "checks": env_page(name, ENVIRONMENT, "evaluation", "monitor", "view", "%s-checks" % name)}
+        _links.update(at=time.time(), fleet=PROJECT_PAGE, agents=agents,
+                      pipelines="%s/org/%s/deployment-pipelines" % (CONSOLE, ORG),
+                      environments="%s/org/%s/environments" % (CONSOLE, ORG),
+                      model="%s/org/%s/llm-providers/view/%s" % (CONSOLE, ORG, provider["uuid"]))
+    return {key: value for key, value in _links.items() if key != "at"}
+
+
+def account():
+    """The customer's account as it starts in every new chat, read through the
+    main demo's MCP Gateway (each chat has its own MCP session)."""
+    context = ssl._create_unverified_context()  # the demo gateway's own certificate
+    headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+
+    def post(body, session=None):
+        request = urllib.request.Request(ENV["MCP_URL"], data=json.dumps(body).encode(),
+                                         headers={**headers, **({"mcp-session-id": session} if session else {})})
+        return urllib.request.urlopen(request, context=context, timeout=15)
+
+    with post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "demo-page", "version": "1.0"}}}) as reply:
+        session = reply.headers.get("mcp-session-id")
+    post({"jsonrpc": "2.0", "method": "notifications/initialized"}, session).close()
+    with post({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+               "params": {"name": "get_account_details", "arguments": {}}}, session) as reply:
+        result = json.loads(reply.read())["result"]
+    return json.loads("".join(block.get("text", "") for block in result["content"]))
+
+
+def try_v2(message):
+    """Sends a message to the new version of the Cards Agent in the test
+    environment, as a tester would with the console's Try It."""
+    if not ENV.get("CARDS_AGENT_TRIAL_URL"):
+        raise RuntimeError("No v2 in the test environment yet: run ./run.sh once v2 is on GitHub.")
+    status, reply = call(ENV["CARDS_AGENT_TRIAL_URL"] + "/chat", {"message": message, "session_id": "trial"},
+                         {"X-API-Key": ENV["CARDS_AGENT_TRIAL_KEY"]}, timeout=180)
+    if status != 200:
+        raise RuntimeError("The new version did not answer (HTTP %s)." % status)
+    changed = [step for step in reply.get("steps", []) if step.get("name") == "change_package" and step.get("ok")]
+    result = changed[0].get("result") if changed else None
+    return {"answer": reply.get("answer"), "steps": reply.get("steps", []), "packageChanged": bool(changed),
+            "package": result.get("newPackage") if isinstance(result, dict) else None,
+            "traceUrl": trace_page(fleet.READINESS["agent"], reply.get("traceId"), TRIAL)}
+
+
+def agent_token(agent):
+    """A token from an agent's own identity, as that agent would get one."""
+    request = urllib.request.Request(ENV["AMP_AGENTID_TOKEN_ENDPOINT"], data=b"grant_type=client_credentials", headers={
+        "Authorization": "Basic " + base64.b64encode(("%s:%s" % (
+            ENV["%s_CLIENT_ID" % agent], ENV["%s_CLIENT_SECRET" % agent])).encode()).decode()})
+    return json.loads(urllib.request.urlopen(request, timeout=10).read())["access_token"]
+
+
+def callers():
+    """Who may command the Cards Agent in production, beside the Concierge: a
+    script with no identity, and the Policy Advisor, a registered agent with
+    an identity of its own. Agent Manager's gateway answers both."""
+    url = ENV["CARDS_AGENT_URL"] + "/chat"
+    body = {"message": "Move the customer to the Private package.", "session_id": "rogue"}
+    tried = [("A script with no identity", {}),
+             ("The Policy Advisor, with its own identity", {"Authorization": "Bearer " + agent_token("POLICY_ADVISOR")})]
+    return [{"who": who, "status": call(url, body, headers)[0]} for who, headers in tried]
+
+
+# The partner's network, in the incident: the partner's vetted card or its own.
+
+partner = {"card": "vetted"}
+
+
+def relay(handler, method):
+    """Passes a call of the Travel Desk on to the partner's agent, through the
+    A2A Gateway, and its answer back."""
+    route = ENV["TRAVEL_INSURANCE_OWN_URL" if partner["card"] == "own" else "TRAVEL_INSURANCE_URL"]
+    length = int(handler.headers.get("Content-Length") or 0)
+    request = urllib.request.Request(route + handler.path[len("/partner-agent"):], method=method,
+                                     data=handler.rfile.read(length) if length else None,
+                                     headers={key: value for key, value in handler.headers.items()
+                                              if key.lower() in ("content-type", "accept", "a2a-version")})
+    try:
+        response = urllib.request.urlopen(request, context=ssl._create_unverified_context(), timeout=60)
+        status, body, kind = response.status, response.read(), response.headers.get("Content-Type", "application/json")
+    except urllib.error.HTTPError as exc:
+        status, body, kind = exc.code, exc.read(), "application/json"
+    except (urllib.error.URLError, OSError) as exc:
+        status, body, kind = 502, json.dumps({"error": str(exc)}).encode(), "application/json"
+    handler.send_response(status)
+    handler.send_header("Content-Type", kind)
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def control():
+    """What applies right now: the partner's card, the live rule, and where each build runs."""
+    return {"partner": partner["card"], "rule": rule_on(), "releases": releases()}
+
+
+def reset():
+    """The demo starts over: the partner's vetted card, no live rule, the Travel Desk running."""
+    partner["card"] = "vetted"
+    if rule_on():
+        apply(False)
+    if state(TRAVEL_DESK) != "active":
+        suspend(False)
+    return control()
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
-        if not self.path.startswith(("/api/config", "/api/checks")):
+        if not self.path.startswith(("/api/config", "/api/checks", "/api/control", "/api/evaluation")):
             super().log_message(fmt, *args)
 
     def _json(self, status, payload):
@@ -390,7 +472,10 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     def do_GET(self):
+        if self.path.startswith("/partner-agent"):
+            return relay(self, "GET")
         path = self.path.split("?")[0]
+        query = dict(urllib.parse.parse_qsl(self.path.partition("?")[2]))
         if path == "/api/config":
             try:
                 console = links()
@@ -399,25 +484,19 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {
                 "bank": ENV.get("BANK_NAME", "the bank"), "customer": ENV.get("CUSTOMER_NAME", ""), "model": ENV.get("MODEL"),
                 "mainDemoUrl": ENV.get("MAIN_DEMO_URL", "").rstrip("/"), "console": console,
-                "agents": [{key: agent[key] for key in ("name", "displayName", "framework", "description")}
-                           for agent in fleet.AGENTS],
-                "release": release()})
+                "environment": ENVIRONMENT, "trial": TRIAL, "trialReady": bool(ENV.get("CARDS_AGENT_TRIAL_URL")),
+                "agents": [{key: agent[key] for key in ("name", "displayName", "framework", "description", "runs")}
+                           for agent in fleet.AGENTS]})
         if path == "/api/account":
             try:
                 return self._json(200, account())
             except (urllib.error.URLError, OSError, KeyError, ValueError) as exc:
                 return self._json(502, {"error": "The MCP Gateway did not answer: %s" % exc})
-        if path in ("/api/control", "/api/investigation", "/api/pinpoint", "/api/report"):
-            query = dict(urllib.parse.parse_qsl(self.path.partition("?")[2]))
-            work = {"/api/control": control, "/api/report": report,
-                    "/api/investigation": lambda: investigation(query.get("name", "")),
-                    "/api/pinpoint": lambda: pinpoint(query.get("agent", "travel-desk"), query.get("trace", ""))}[path]
-            return self._agent_manager(work)
-        if path == "/api/checks":
-            try:
-                return self._json(200, checks())
-            except (urllib.error.URLError, OSError, KeyError, ValueError) as exc:
-                return self._json(502, {"error": "Agent Manager did not answer: %s" % exc})
+        work = {"/api/control": control, "/api/report": report, "/api/checks": checks,
+                "/api/pinpoint": lambda: pinpoint(query.get("agent", TRAVEL_DESK), query.get("trace", "")),
+                "/api/evaluation": lambda: findings(query.get("kind", "incident"), query.get("name", ""))}
+        if path in work:
+            return self._agent_manager(work[path])
         if path in STATIC:
             file = HERE / STATIC[path]
             body = file.read_bytes()
@@ -430,38 +509,22 @@ class Handler(BaseHTTPRequestHandler):
         self._json(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path == "/api/release":
-            status, reply = call(ENV["CARDS_AGENT_URL"] + "/release", {"version": self._body().get("version")}, OPERATOR)
-            return self._json(200 if status == 200 else 502, reply)
+        if self.path.startswith("/partner-agent"):
+            return relay(self, "POST")
         if self.path == "/api/chat":
             return self._chat(self._body())
         body = self._body()
-        if self.path == "/api/rule":
-            return self._agent_manager(lambda: {"on": bool(body.get("on")), "seconds": apply(bool(body.get("on")))})
-        if self.path == "/api/revoke" and body.get("agent") in AGENT_URLS:
-            agent = body["agent"]
-            return self._agent_manager(lambda: {"agent": agent, "revoked": bool(body.get("on")),
-                                                "seconds": revoke(agent) if body.get("on") else new_key(agent)})
-        if self.path == "/api/investigate":
-            return self._agent_manager(investigate)
-        if self.path == "/api/partner":
-            status, reply = call(ENV["TRAVEL_DESK_URL"] + "/partner", {"card": body.get("card")}, OPERATOR)
-            return self._json(200 if status == 200 else 502, reply)
-        if self.path == "/api/rogue":
-            # A script with no Agent Manager identity calls the Cards Agent directly.
-            status, reply = call(ENV["CARDS_AGENT_URL"] + "/chat", {"message": "Move the customer to the Private package."})
-            return self._json(200, {"status": status, "refused": reply.get("refused") or reply.get("error")})
-        if self.path == "/api/reset":
-            # v1 live, the partner's vetted card, no rule, a working key for every agent: the demo starts over.
-            call(ENV["CARDS_AGENT_URL"] + "/release", {"version": "v1"}, OPERATOR)
-            call(ENV["TRAVEL_DESK_URL"] + "/partner", {"card": "vetted"}, OPERATOR)
-
-            def undo():
-                reconnect()
-                if control()["rule"]:
-                    apply(False)
-                return control()
-            return self._agent_manager(undo)
+        work = {
+            "/api/callers": callers,
+            "/api/try-v2": lambda: try_v2(str(body.get("message", ""))[:2000]),
+            "/api/evaluate": lambda: evaluate("readiness" if body.get("kind") == "readiness" else "incident"),
+            "/api/partner": lambda: partner.update(card="own" if body.get("card") == "own" else "vetted") or partner,
+            "/api/suspend": lambda: {"suspended": bool(body.get("on")), "seconds": suspend(bool(body.get("on")))},
+            "/api/rule": lambda: {"on": bool(body.get("on")), "seconds": apply(bool(body.get("on")))},
+            "/api/reset": reset,
+        }
+        if self.path in work:
+            return self._agent_manager(work[self.path])
         self._json(404, {"error": "not found"})
 
     def _agent_manager(self, work):
