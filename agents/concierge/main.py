@@ -20,13 +20,15 @@ from opentelemetry import context as otel_context
 from opentelemetry import trace
 from pydantic import BaseModel
 
-from common import gateway, identity, service, steps
+from common import gateway, identity, steps
 
 BANK = os.environ.get("BANK_NAME", "the bank")
+# Where each specialist answers: Agent Manager's gateway for the agents it
+# runs, the team's own address for the others.
 SPECIALISTS = {
-    "cards-agent": os.environ.get("CARDS_AGENT_URL", "http://cards-agent:8000"),
-    "travel-desk": os.environ.get("TRAVEL_DESK_URL", "http://travel-desk:8000"),
-    "policy-advisor": os.environ.get("POLICY_ADVISOR_URL", "http://policy-advisor:8000"),
+    "cards-agent": os.environ["CARDS_AGENT_URL"],
+    "travel-desk": os.environ["TRAVEL_DESK_URL"],
+    "policy-advisor": os.environ["POLICY_ADVISOR_URL"],
 }
 INSTRUCTIONS = """You are the concierge of %s. You talk to the customer and hand each part of
 their request to the specialist that owns it, all at once:
@@ -39,7 +41,8 @@ Give each specialist only its part, in plain words, with the facts it needs (whe
 customer is, what happened). Then answer the customer in plain text, without markdown or
 lists: four or five short sentences on what was done and what it means for them, with the
 useful numbers (references, amounts, delays). Use only what the specialists told you. When a
-specialist was stopped from doing something, say simply what was done and what was not. When a
+specialist was stopped from doing something, or is not available, say simply what was done and
+what will follow later. When a
 specialist needs something from the customer, ask the customer for it.""" % BANK
 SAFE_ANSWER = ("For your security, please never share your full card number, here or anywhere else: I have not "
                "passed it on. No one at %s, and no agent working for us, will ever ask you for it." % BANK)
@@ -71,8 +74,15 @@ def ask(agent, request):
     emit({"type": "call", "agent": agent, "status": "start", "request": request})
     try:
         bearer = identity.token()
-        reply = httpx.post(SPECIALISTS[agent] + "/chat", json={"message": request}, timeout=180,
-                           headers={"Authorization": "Bearer " + bearer}).json()
+        response = httpx.post(SPECIALISTS[agent] + "/chat", json={"message": request, "session_id": "concierge"},
+                              timeout=180, headers={"Authorization": "Bearer " + bearer})
+        if response.status_code in (404, 502, 503):  # no running deployment behind Agent Manager's gateway
+            reply = {"agent": agent, "unavailable": True, "steps": [],
+                     "answer": "The %s is not available right now: Agent Manager suspended it." % agent}
+        elif response.status_code == 401 and "refused" not in response.text:
+            reply = {"agent": agent, "refused": "Agent Manager's gateway did not accept the Concierge's identity."}
+        else:
+            reply = response.json()
     except identity.Refused as exc:
         reply = {"agent": agent, "refused": str(exc)}
     except (httpx.HTTPError, ValueError) as exc:
@@ -155,10 +165,7 @@ def chat_stream(ask_: Ask):
 
 @app.get("/health")
 def health():
-    return {"agent": "concierge", "framework": "LangGraph", "version": "v1", "model": gateway.MODEL, "key": gateway.hint()}
-
-
-service.key_route(app)
+    return {"agent": "concierge", "framework": "LangGraph", "model": gateway.MODEL}
 
 
 if __name__ == "__main__":

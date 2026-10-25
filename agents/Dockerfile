@@ -1,5 +1,6 @@
-# One image recipe for every agent: its own framework, the shared code, and
-# Agent Manager's instrumentation, which traces it without code changes.
+# The image of an agent that runs outside Agent Manager (the Concierge, the
+# Policy Advisor): its own framework, the shared code, and Agent Manager's
+# instrumentation package, which traces it without code changes.
 FROM python:3.12-slim
 ARG AGENT
 WORKDIR /app

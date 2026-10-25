@@ -74,7 +74,7 @@ async def advise(message):
     return str(await agent.run(user_msg=message))
 
 
-def answer(message, _instructions):
+def answer(message):
     return asyncio.run(advise(message))
 
 

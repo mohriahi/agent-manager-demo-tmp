@@ -20,13 +20,7 @@ KEY = os.environ["LLM_KEY"]
 MODEL = os.environ.get("MODEL", "claude-haiku-4-5")
 # How hard the model thinks, for the models that take it (Claude 4.6 and later). Empty: not sent.
 EFFORT = os.environ.get("EFFORT", "")
-HEADERS = {KEY_HEADER: KEY}  # the page hands the agent a new key here after a revocation
-
-
-def hint():
-    """The end of the agent's key, enough to tell which one it holds."""
-    return HEADERS[KEY_HEADER][-4:]
-
+HEADERS = {KEY_HEADER: KEY}
 
 def _reason(verdict):
     """A plain-words reason for a block, from the guardrail's own report."""

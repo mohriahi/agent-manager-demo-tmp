@@ -4,9 +4,7 @@ destination, the other asks the partner's Travel Insurance Agent for cover.
 Each finds its agent by the agent's A2A card, then talks to it over A2A,
 through the A2A Gateway.
 
-For the demo's incident, the travel team can be connected to the partner's
-own card instead of the one the gateway vetted: the partner's card then
-reaches the crew as the partner wrote it."""
+Agent Manager runs it, and can suspend it in one click."""
 import json
 import os
 
@@ -15,16 +13,16 @@ import uvicorn
 from crewai import Agent, Crew, Process, Task
 from crewai.llms.providers.anthropic.completion import AnthropicCompletion
 from crewai.tools import tool
-from fastapi import Header
-from pydantic import BaseModel
-from traceloop.sdk.decorators import tool as traced  # shows each call to another agent in Agent Manager
-
 from common import a2a, gateway, service, steps
 
+try:  # Agent Manager adds its tracing when it deploys the agent: show each call to another agent in it
+    from traceloop.sdk.decorators import tool as traced
+except ImportError:
+    def traced(name):
+        return lambda function: function
+
 TRAVEL_MONEY = os.environ["TRAVEL_MONEY_URL"]
-# The partner's agent, through the card the gateway vetted, or through the partner's own card.
-PARTNER = {"vetted": os.environ["TRAVEL_INSURANCE_URL"], "own": os.environ["TRAVEL_INSURANCE_OWN_URL"]}
-setup = {"partner": "vetted"}
+PARTNER = os.environ["TRAVEL_INSURANCE_URL"]
 
 
 class GatewayClaude(AnthropicCompletion):
@@ -68,7 +66,7 @@ def read_travel_money_agent_card() -> str:
 @traced("read_travel_insurance_agent_card")
 def read_travel_insurance_agent_card() -> str:
     """Read the A2A card of the partner's Travel Insurance Agent: who it is and how to work with it."""
-    return card("Travel Insurance Agent", PARTNER[setup["partner"]])
+    return card("Travel Insurance Agent", PARTNER)
 
 
 # Each member's answer is the other agent's own answer, word for word.
@@ -83,14 +81,14 @@ def ask_travel_money_agent(question: str) -> str:
 @traced("ask_travel_insurance_agent")
 def ask_travel_insurance_agent(question: str) -> str:
     """Ask the partner's Travel Insurance Agent which travel insurance fits a trip. Name the country."""
-    return a2a.send("Travel Insurance Agent", PARTNER[setup["partner"]], question)
+    return a2a.send("Travel Insurance Agent", PARTNER, question)
 
 
 # Short conversations: no context-size checks, which would cost extra calls.
 MEMBER = dict(max_iter=4, max_retry_limit=0, verbose=False, respect_context_window=False, use_better_compaction=False)
 
 
-def answer(message, _instructions):
+def answer(message):
     money = Agent(role="Travel money analyst", goal="Find out what paying by card costs the customer at the destination.",
                   backstory="You work on the bank's travel desk. You work with the Travel Money Agent, as its card says.",
                   tools=[read_travel_money_agent_card, ask_travel_money_agent], llm=claude(), **MEMBER)
@@ -111,24 +109,6 @@ def answer(message, _instructions):
 
 
 app = service.create("travel-desk", "CrewAI", answer)
-
-
-class Partner(BaseModel):
-    card: str
-
-
-@app.get("/partner")
-def connected():
-    return setup
-
-
-@app.post("/partner")
-def partner(body: Partner, x_release_key: str = Header("")):
-    """Which card of the partner's agent the travel team is connected to: vetted or own."""
-    service.operator(x_release_key)
-    setup["partner"] = "own" if body.card == "own" else "vetted"
-    return setup
-
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
