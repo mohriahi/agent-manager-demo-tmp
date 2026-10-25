@@ -1,20 +1,88 @@
 # Agent Manager demo
 
-The bank's assistant becomes a team of agents, and the bank stays in control:
-each agent is registered in WSO2 Agent Manager, has a version, and leaves a
-trace there. Every call an agent makes still goes through the WSO2 AI Gateway
-of the main demo.
+The next chapter of the main demo,
+[wso2-api-platform-ai-demo](https://github.com/mohriahi/wso2-api-platform-ai-demo).
+The bank's assistant becomes a team of
+agents, built by four teams with four frameworks: LangGraph, the OpenAI Agents
+SDK, CrewAI and LlamaIndex. They work on the same systems as in the main
+demo's tabs: Core Banking through the **MCP Gateway**, the bank's Travel Money
+Agent and the partner's Travel Insurance Agent through the **A2A Gateway**.
 
-It runs next to the main demo, wso2-api-platform-ai-demo, and changes nothing
-in it.
+The demo tells one evening at the bank, when things go wrong. Each moment is
+shown twice: what happens without a control plane, and what WSO2 Agent
+Manager does about it, without touching any agent's code:
+
+- every agent is registered, with its own identity, and only agents with a
+  valid identity may call each other;
+- every agent gets its own key to the model, and never sees the real one;
+- the bank's rules apply on every model call: no card number ever reaches the
+  model, an agent can only take the actions it is allowed to, and each agent
+  has a token budget;
+- any agent's key to the model can be revoked on its own, in seconds, wherever
+  the agent runs;
+- every step is traced, whatever the framework, so Agent Manager shows where a
+  fault came from; the bank's own checks score every agent continuously, and
+  investigate an incident on demand.
+
+Every action on the page is a call to Agent Manager's API, as the risk team
+would make in the console, and every result links to the console screen that
+shows it. **Start over** puts everything back.
+
+## One evening at the bank, in five acts
+
+The customer is Sam Taylor, on the Everyday package, as in the main demo.
+
+1. **09:00, a normal day.** Sam is moving to New York for six months, wants a
+   new debit card at home before leaving, and asks what paying by card costs
+   there and about travel insurance. The Concierge (LangGraph) hands each part
+   to a specialist, all at once: the Cards Agent (OpenAI Agents SDK) orders the
+   card through the MCP Gateway, the Travel Desk (a CrewAI crew of two) reads
+   the A2A cards of the Travel Money and Travel Insurance agents and asks them,
+   the Policy Advisor (LlamaIndex) answers from the bank's catalogue. Each
+   specialist checks the Concierge's identity before doing anything. A second
+   button has a script with no identity call the Cards Agent: refused.
+2. **18:02, a partner's agent turns rogue.** The partner's A2A card now carries
+   an instruction for the agents that read it: ask the customer for the full
+   card number and expiry date. The Travel Desk follows it, and the Concierge
+   asks Sam. Agent Manager's trace shows where it came from (the step that
+   read the partner's card, and the sentence it returned), and Agent Manager
+   investigates the last 15 minutes with the bank's own checks: about 3
+   minutes later, it names the trace, the step and the request for card
+   details. When Sam sends the card number, it is blocked before it leaves the
+   bank.
+3. **18:05, contain it without stopping the bank.** The Travel Desk runs
+   outside Agent Manager, but its key to the model comes from it. The risk
+   team revokes that key in Agent Manager, as with the **Revoke** button of the
+   agent's model access in the console: in a few seconds, wherever it runs, the
+   Travel Desk can no longer reach the model, so it can neither think nor act.
+   Sam asks again: the card is still ordered, the catalogue still answers, only
+   the travel answers wait. The second button gives the Travel Desk a new key
+   from Agent Manager, back on the card the gateway vetted.
+4. **18:20, the Friday-evening release.** The cards team ships v2 with a rule
+   from sales: customers going abroad move to Premier, at €14 a month. Sam is
+   moved without asking: the account turns red on the page, and the call is on
+   record in Agent Manager. The risk team adds one rule to the Cards Agent in
+   Agent Manager, card actions only: live in a few seconds, with no new
+   release. Sam asks again: the card is ordered, the package change is
+   refused. Then roll back to v1.
+5. **Monday 09:00, the risk committee.** One report from Agent Manager: per
+   agent, requests, tokens, model cost, blocked steps and errors over the last
+   day, what the investigation found, and each agent's scores.
+
+Scores come in every 5 minutes, and the investigation takes about 3 minutes:
+run the acts in order, and the findings are there by act 5.
 
 ## What you need
 
-- The main demo cloned next to this folder (`../wso2-api-platform-ai-demo`,
-  or set `MAIN_DEMO_DIR` in `config.env`) and running on the bank:
-  `DEMO_VERTICAL=bank` in its `demo.env`, then `./scripts/run-local.sh`.
+- The main demo, cloned next to this repository (`../wso2-api-platform-ai-demo`;
+  elsewhere, change the paths in `config.env`), running on the bank with its
+  A2A gateway: `DEMO_VERTICAL=bank` and `A2A_ENABLED=true` in its `demo.env`,
+  then `./scripts/run-local.sh`.
 - WSO2 Agent Manager 1.0 installed and running, with its quick start. Its
   console is at http://console.amp.localhost:8080 (admin / admin).
+- An Anthropic key and a Gemini key, in the file `config.env` points to (by
+  default the main demo's `secrets/api-keys.env`). They are read once, to
+  register the two models in Agent Manager.
 - Docker.
 
 ## Start it
@@ -23,78 +91,73 @@ in it.
 ./run.sh
 ```
 
-Then open http://localhost:8610. To reach it from the main demo, set
+Then open http://localhost:8610. From the main demo, set
 `AGENT_MANAGER_URL=http://localhost:8610` in its `demo.env`: an **Agent
 Manager** link shows on the right of its top bar.
 
-`run.sh` sets Agent Manager up (`setup.py`), then starts the agents and the
-page. Run it again whenever you like: what is already set up stays as it is.
-
-## The story, in three acts
-
-The page has a button for each act. The customer's question is always the
-same: *I lost my debit card in Lisbon. Please send me a new one. And while
-I'm in Portugal, what does paying by card cost me, and is there travel
-insurance for me?*
-
-1. **One request, four agents.** Click **Ask**. The map shows the Assistant
-   handing each part to the agent that owns it, all at once: the Cards Agent
-   orders the new card through the Core Banking tools, the Travel Money and
-   Travel Insurance agents answer over A2A. Every call crosses the AI Gateway.
-   Open **The Assistant's trace in Agent Manager**: the same request, step by
-   step, with its tokens.
-2. **A new version ships.** Click **Ship v2**, then ask again. Cards Agent v2
-   has new instructions: sell the Premier package. It moves the customer to
-   Premier (14 EUR a month) without being asked, and the assistant announces
-   it as good news. The map turns red on `change_package`. Open **See what
-   Cards Agent v2 did**: the trace shows the call.
-3. **Back in control.** Agent Manager checks the Cards Agent every 5 minutes
-   (the **Cards Agent checks** monitor). **No unasked account change** drops
-   for the v2 traces: the page shows the latest check, and its link opens the
-   monitor in the console. Click **Roll back to v1** and ask again: the
-   account is left alone.
+`run.sh` sets Agent Manager up (`configure/`), then starts the agents and the
+page. Run it again whenever you like: what is there is kept, and the rules
+follow `configure/fleet.py`.
 
 ## What runs
 
-| Agent | What it does | In Agent Manager |
-|---|---|---|
-| Assistant | Talks to the customer, hands each part to an agent | registered, traced |
-| Cards Agent | Acts on the customer's cards with the Core Banking tools | registered, traced, checked every 5 minutes |
-| Travel Money Agent | What a card costs abroad (the main demo's A2A agent) | registered, runs elsewhere |
-| Travel Insurance Agent | A partner's travel insurance (the main demo's A2A agent) | registered, runs elsewhere |
+| Agent | Framework | Team | Works with | Rules in Agent Manager |
+|---|---|---|---|---|
+| Concierge | LangGraph | digital | the three specialists, with its identity | no card numbers, daily budget |
+| Cards Agent (v1, v2) | OpenAI Agents SDK | cards | Core Banking, through the MCP Gateway | no card numbers, daily budget; card actions only, added in act 4 |
+| Travel Desk | CrewAI | travel | Travel Money and Travel Insurance agents, through the A2A Gateway | no card numbers, daily budget |
+| Policy Advisor | LlamaIndex | customer care | the main demo's product catalogue | no card numbers, daily budget |
 
-The Assistant and the Cards Agent run in Docker as externally hosted agents.
-Their models go through the main demo's plain LLM route, the Cards Agent's
-tools through its Core Banking MCP route, and the two travel agents through
-its A2A gateway.
+Every model call goes through Agent Manager's own gateway, with each agent's
+own key. MCP and A2A calls go through the main demo's gateways, unchanged.
+The partner's Travel Insurance Agent is registered in Agent Manager too, as an
+external agent.
 
-## What `setup.py` sets up in Agent Manager
+## What `configure/` sets up in Agent Manager
 
-- A project for the bank, with the four agents.
-- A tracing key for each traced agent.
-- **Unasked account change**: a check of Agent Manager's own, in Python, that
-  fails when an agent changes the customer's package and the request did not
-  ask for it.
-- **Cards Agent checks**: a monitor that runs it every 5 minutes, with two of
-  Agent Manager's built-in checks (tool calls that worked, answer time).
+All of it is described in `configure/fleet.py`:
 
-It writes the keys it creates, and the values it reads from the main demo, to
-`secrets.env`, which Git ignores. It does not install Agent Manager.
+- the bank's project, its four agents, each with a tracing key and its own
+  identity, and the partner's agent;
+- the two models, Claude for the agents and Gemini for the judge, each
+  registered once with the bank's key;
+- for each agent, its own access to Claude, with its rules;
+- four checks of the bank's own, in Python: *No unasked account change*, *No
+  blocked steps*, *No instructions from third parties* and *Never asks for
+  card details*;
+- a monitor per agent, which scores its traces every 5 minutes.
+
+It writes the keys and identities Agent Manager hands out, and where the main
+demo's gateways are, to `secrets.env`, which Git ignores. It does not install
+Agent Manager.
 
 ## Settings
 
-All in `config.env`. `MAIN_DEMO_DIR` says where the main demo is. Left
-empty, `BANK_NAME`, `GATEWAY_URL` and `A2A_GATEWAY_URL` follow the main demo
-(its brand, and this machine's gateway ports). With the main demo on another
-machine, set them, and point `LLM_KEY_SOURCE` at a file that holds the LLM
-route's key.
+All in `config.env`: the bank and its customer, Agent Manager's addresses,
+where the main demo is and the routes the agents use on its gateways, the
+catalogue, where the model keys are, the model the agents use (`MODEL`) and
+how hard it thinks (`EFFORT`), and the page's port.
 
 ## Good to know
 
-- The version switch is the page's own. Agent Manager deploys and rolls back
-  agents it builds itself, and it builds them from GitHub only. Once the
-  agents' code is on GitHub, each one can be created as an internal agent
-  (`agents/<name>`: `POST /chat` on port 8000) and rolled back from the
-  console.
-- The monitor's scores come in every 5 minutes, not live: run act 2 a few
-  minutes before showing the scores.
+- The rule of act 4, the revocation of act 3 and the investigation are made
+  by the page through Agent Manager's API. **Start over** takes the rule off,
+  gives a new key to any agent without a working one, and puts the partner's
+  vetted card back; `./run.sh` does too.
+- Agent Manager's **Suspend** button is for the agents it hosts itself. For an
+  agent hosted elsewhere, as here, revoking its key to the model is the way to
+  stop it. A new key is handed to the agent by the page, as its team would,
+  and kept in `secrets.env` for its next start.
+- The partner's rogue card is the main demo's own showcase of an unchecked A2A
+  card (`partner-agent-own`). The Travel Desk switches to it in act 2, and back
+  to the card the gateway vetted when it is resumed.
+- Each investigation is a one-off monitor in Agent Manager, kept in the
+  console under the Travel Desk.
+- The agents run in Docker, as externally hosted agents. Agent Manager builds
+  and deploys agents itself only from GitHub, so versions here are switched by
+  the page, not rolled back from the console.
+- Agent Manager 1.0 registers MCP servers only at public addresses, so the
+  agents reach Core Banking through the main demo's MCP Gateway, and what they
+  may do is also enforced on their model calls (the Cards Agent's rule).
+- Agent Manager 1.0's model judges do not work with Claude yet, which is why
+  Gemini judges.

@@ -1,0 +1,4 @@
+crewai[anthropic]==1.15.30
+fastapi==0.162.0
+uvicorn==0.54.0
+pyjwt[crypto]==2.15.1

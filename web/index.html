@@ -13,15 +13,14 @@
 <header class="topbar">
   <div class="topbar-inner">
     <a class="wordmark" id="wordmark" href="#"></a>
-    <nav class="gw-nav" aria-label="Gateway">
+    <nav class="gw-nav" aria-label="The main demo">
       <a class="nav-link" data-page="llm" href="#"><span class="icon" data-icon="brain"></span>LLM<span class="nav-word"> Gateway</span></a>
       <a class="nav-link" data-page="mcp" href="#"><span class="icon" data-icon="mcp"></span>MCP<span class="nav-word"> Gateway</span></a>
       <a class="nav-link" data-page="a2a" href="#"><span class="icon" data-icon="bot"></span>A2A<span class="nav-word"> Gateway</span></a>
     </nav>
     <div class="top-right">
       <span class="am-tab"><span class="icon" data-icon="fleet"></span>Agent Manager</span>
-      <a class="console-link" id="console-link" target="_blank" rel="noopener" title="Open the Agent Manager console">
-        Console<span class="icon" data-icon="external"></span></a>
+      <a class="console-link" id="console-link" target="_blank" rel="noopener">Open Agent Manager<span class="icon" data-icon="external"></span></a>
     </div>
   </div>
 </header>
@@ -29,67 +28,94 @@
 <main class="page">
   <section class="hero">
     <p class="eyebrow">WSO2 Agent Manager</p>
-    <h1>From one assistant to a team of agents, still in control</h1>
-    <p class="lede">Each agent has a version and leaves a trace in Agent Manager. Every call it makes still goes through
-      the WSO2 AI Gateway.</p>
+    <h1>Without a control plane, an AI incident is a crisis. With Agent Manager, it is a ticket.</h1>
+    <p class="lede">Four teams, four frameworks and a partner's agent serve the bank's customers. Follow one evening,
+      and see each moment without Agent Manager, and with it.</p>
   </section>
 
-  <ol class="acts" id="acts">
-    <li class="act" data-act="1">
-      <span class="act-num">1</span>
-      <div class="act-text"><h2>One request, four agents</h2>
-        <p>The Assistant splits the customer's request between the agents that own each part.</p></div>
-      <button type="button" class="act-btn" data-action="ask">Ask</button>
-    </li>
-    <li class="act" data-act="2">
-      <span class="act-num">2</span>
-      <div class="act-text"><h2>A new version ships</h2>
-        <p>Cards Agent v2 goes live. Its new instructions say to sell the Premier package.</p></div>
-      <button type="button" class="act-btn" data-action="ship">Ship v2</button>
-    </li>
-    <li class="act" data-act="3">
-      <span class="act-num">3</span>
-      <div class="act-text"><h2>Back in control</h2>
-        <p>Agent Manager shows which agent did what, and since when. Roll back, then ask again.</p></div>
-      <button type="button" class="act-btn" data-action="rollback">Roll back to v1</button>
-    </li>
-  </ol>
+  <div class="layout">
+    <aside class="story" aria-label="The evening, act by act">
+      <div class="story-head"><h2 class="section-title">One evening at the bank</h2>
+        <button type="button" class="link-button" id="start-over">Start over</button></div>
+      <ol class="steps" id="steps"></ol>
+    </aside>
 
-  <div class="stage">
+    <section class="panel fleet" aria-label="The control tower">
+      <header class="panel-head">
+        <h2 class="section-title">The control tower</h2>
+        <div class="totals" id="totals"></div>
+      </header>
+      <div class="flow">
+        <div class="lane lane-top">
+          <div class="box customer" id="account"><span class="icon" data-icon="user"></span><div><b id="customer-name">The customer</b>
+            <small data-account="package"></small><small data-account="card"></small></div></div>
+          <div class="agent" data-agent="concierge"></div>
+          <a class="box registry" id="registry-link" target="_blank" rel="noopener"><span class="icon" data-icon="fleet"></span>
+            <div><b>Registered in Agent Manager</b><small>4 agents and a partner's, each with its own identity</small></div></a>
+        </div>
+        <div class="fan" aria-hidden="true"><span></span><span></span><span></span></div>
+        <div class="lane lane-specialists">
+          <div class="agent" data-agent="cards-agent"></div>
+          <div class="agent" data-agent="travel-desk"></div>
+          <div class="agent" data-agent="policy-advisor"></div>
+        </div>
+        <div class="gateway" id="gateway">
+          <div class="gateway-head">
+            <div class="gateway-title"><span class="icon" data-icon="shield"></span>
+              <div><b>Agent Manager</b><small>Every model call of every agent goes through it</small></div></div>
+            <a class="model" id="model-link" target="_blank" rel="noopener"><span class="icon" data-icon="sparkles"></span>
+              <div><b id="model-name">Claude</b><small>Registered once for the bank</small></div></a>
+          </div>
+          <ul class="rules">
+            <li><span class="icon" data-icon="key"></span>Its own identity and key per agent</li>
+            <li data-rule="card-number"><span class="icon" data-icon="card"></span>No card numbers to the model</li>
+            <li data-rule="package" class="is-off"><span class="icon" data-icon="ban"></span>Cards Agent: card actions only</li>
+            <li data-rule="suspended" class="is-off"><span class="icon" data-icon="unplug"></span><span id="suspended-label">Revoked keys: none</span></li>
+            <li><span class="icon" data-icon="gauge"></span>500k tokens a day each</li>
+            <li><span class="icon" data-icon="activity"></span>Every step traced and checked</li>
+          </ul>
+        </div>
+        <div class="ai-gateway">
+          <div class="gateway-title"><span class="icon" data-icon="network"></span>
+            <div><b>WSO2 AI Gateway</b><small>The previous tabs: the tools and the other agents go through it</small></div></div>
+          <div class="routes">
+            <a class="route" data-via="mcp" id="mcp-link" target="_blank" rel="noopener"><span class="icon" data-icon="mcp"></span>
+              <div><b>MCP Gateway</b><small>Core Banking: account, packages, cards</small></div></a>
+            <a class="route" data-via="a2a" id="a2a-link" target="_blank" rel="noopener"><span class="icon" data-icon="bot"></span>
+              <div><b>A2A Gateway</b><small>The bank's Travel Money Agent, and the partner's Travel Insurance Agent</small>
+                <small class="partner-state" id="partner-state">The partner's card: vetted by the gateway</small></div></a>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="panel chat" aria-label="The customer's chat">
-      <header class="panel-head"><span class="icon" data-icon="user"></span>Customer</header>
+      <header class="panel-head"><h2 class="section-title">The customer's chat with the bank</h2></header>
       <div class="messages" id="messages"></div>
-      <div class="suggest" id="suggest"></div>
       <form class="composer" id="composer">
-        <input id="input" autocomplete="off" placeholder="Ask the bank...">
+        <input id="input" autocomplete="off" placeholder="Write as the customer...">
         <button type="submit" aria-label="Send"><span class="icon" data-icon="send"></span></button>
       </form>
     </section>
-
-    <section class="panel map-panel" aria-label="The agents at work">
-      <svg class="map" id="map" viewBox="0 0 900 540" role="img" aria-label="The agents, the gateway and what they call"></svg>
-      <div class="totals" id="totals">
-        <div><span class="total-value" id="t-time">0.0 s</span><span class="total-label">end to end</span></div>
-        <div><span class="total-value" id="t-agents">0</span><span class="total-label">agents</span></div>
-        <div><span class="total-value" id="t-calls">0</span><span class="total-label">calls through the gateway</span></div>
-        <div><span class="total-value" id="t-tokens">0</span><span class="total-label">tokens</span></div>
-        <div><span class="total-value" id="t-cost">$0.000</span><span class="total-label">model cost</span></div>
-      </div>
-    </section>
-
-    <section class="panel trace" aria-label="What happened">
-      <header class="panel-head"><span class="icon" data-icon="list"></span>What happened</header>
-      <ol class="steps" id="steps"></ol>
-      <div class="trace-links" id="trace-links"></div>
-      <div class="checks" id="checks" hidden>
-        <div class="checks-head"><span>Agent Manager's checks on Cards Agent</span>
-          <a id="checks-link" target="_blank" rel="noopener" title="Open the monitor in Agent Manager">
-            <span class="icon" data-icon="external"></span></a></div>
-        <ul class="checks-list" id="checks-list"></ul>
-        <p class="checks-note" id="checks-note"></p>
-      </div>
-    </section>
   </div>
+
+  <section class="panel findings" id="findings" aria-label="What Agent Manager found" hidden>
+    <header class="panel-head"><h2 class="section-title">What Agent Manager found</h2><span class="scores-note" id="findings-note"></span></header>
+    <div class="finding-list" id="finding-list"></div>
+  </section>
+
+  <section class="panel report" id="report" aria-label="Monday's report" hidden>
+    <header class="panel-head"><h2 class="section-title">Monday 9:00, the risk committee's report, from Agent Manager</h2></header>
+    <div class="report-body" id="report-body"></div>
+  </section>
+
+  <section class="panel scores" id="scores" aria-label="Agent Manager's scores">
+    <header class="panel-head">
+      <h2 class="section-title">What Agent Manager scores, every 5 minutes</h2>
+      <span class="scores-note" id="scores-note"></span>
+    </header>
+    <div class="score-grid" id="score-grid"></div>
+  </section>
 </main>
 <script src="/app.js"></script>
 </body>

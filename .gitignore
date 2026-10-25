@@ -1,2 +1,4 @@
-# The keys setup.py creates, and what it reads from the main demo.
+# The keys ./run.sh writes: the ones Agent Manager hands out.
 secrets.env
+# Python's compiled files.
+__pycache__/

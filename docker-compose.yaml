@@ -1,67 +1,124 @@
-# The bank's agents and the demo's page, next to the main demo. The agents are
-# registered in Agent Manager as externally hosted agents and send it their
-# traces. run.sh starts it with config.env and secrets.env.
+# The bank's agents and the demo's page. Started by ./run.sh, with config.env
+# and what configure/ wrote to secrets.env: the keys Agent Manager handed out,
+# and where the main demo's gateways are.
 name: agent-manager
 
 x-agent: &agent
   restart: unless-stopped
-  mem_limit: 256m
+  mem_limit: 512m
+  # Agent Manager's gateway, trace collector and identity provider, and the
+  # main demo's gateways, as Docker reaches them.
   extra_hosts:
-    # The ports published on this machine: the main demo's gateways, and
-    # Agent Manager, which takes the traces.
-    - host.docker.internal:host-gateway
-    - default-default.gateway.localhost:host-gateway
+    - "default-default.gateway.localhost:host-gateway"
+    - "default-idp.amp.localhost:host-gateway"
+    - "host.docker.internal:host-gateway"
+
+x-agent-env: &agent-env
+  BANK_NAME: ${BANK_NAME}
+  MODEL: ${MODEL}
+  EFFORT: ${EFFORT}
+  AMP_OTEL_ENDPOINT: ${AMP_OTEL_ENDPOINT}
+  IDP_URL: ${IDP_URL}
+  # The specialists take requests from the Concierge only, checked on its Agent Manager identity.
+  ALLOWED_CALLERS: concierge:${CONCIERGE_CLIENT_ID}
+  # Only the demo's page may switch a version or a partner's card, or hand an agent a new key.
+  RELEASE_KEY: ${RELEASE_KEY}
 
 services:
-  assistant:
+  concierge:
     <<: *agent
-    build: agents/assistant
+    build: {context: agents, args: {AGENT: concierge}}
     environment:
-      BANK_NAME: ${BANK_NAME}
-      LLM_URL: ${GATEWAY_URL}${LLM_ROUTE}
-      LLM_KEY: ${LLM_KEY}
-      CARDS_AGENT_URL: http://cards-agent:8000/chat
-      TRAVEL_MONEY_AGENT_URL: ${A2A_GATEWAY_URL}${TRAVEL_MONEY_ROUTE}
-      TRAVEL_INSURANCE_AGENT_URL: ${A2A_GATEWAY_URL}${TRAVEL_INSURANCE_ROUTE}
-      AMP_OTEL_ENDPOINT: ${AMP_OTEL_ENDPOINT}
-      AMP_AGENT_API_KEY: ${ASSISTANT_TRACING_KEY}
+      <<: *agent-env
+      LLM_URL: ${CONCIERGE_LLM_URL}
+      LLM_KEY: ${CONCIERGE_LLM_KEY}
+      AMP_AGENT_API_KEY: ${CONCIERGE_TRACING_KEY}
+      AGENT_CLIENT_ID: ${CONCIERGE_CLIENT_ID}
+      AGENT_CLIENT_SECRET: ${CONCIERGE_CLIENT_SECRET}
+    depends_on: [cards-agent, travel-desk, policy-advisor]
 
   cards-agent:
     <<: *agent
-    build: agents/cards-agent
+    build: {context: agents, args: {AGENT: cards-agent}}
     environment:
-      BANK_NAME: ${BANK_NAME}
-      LLM_URL: ${GATEWAY_URL}${LLM_ROUTE}
-      LLM_KEY: ${LLM_KEY}
-      MCP_URL: ${GATEWAY_URL}${MCP_ROUTE}
-      RELEASE_KEY: ${RELEASE_KEY}
-      AMP_OTEL_ENDPOINT: ${AMP_OTEL_ENDPOINT}
+      <<: *agent-env
+      LLM_URL: ${CARDS_AGENT_LLM_URL}
+      LLM_KEY: ${CARDS_AGENT_LLM_KEY}
       AMP_AGENT_API_KEY: ${CARDS_AGENT_TRACING_KEY}
+      AGENT_CLIENT_ID: ${CARDS_AGENT_CLIENT_ID}
+      AGENT_CLIENT_SECRET: ${CARDS_AGENT_CLIENT_SECRET}
+      MCP_URL: ${MCP_URL}
 
-  # The demo's page: the live map, the customer's chat and the release switch.
+  travel-desk:
+    <<: *agent
+    build: {context: agents, args: {AGENT: travel-desk}}
+    mem_limit: 768m
+    environment:
+      <<: *agent-env
+      LLM_URL: ${TRAVEL_DESK_LLM_URL}
+      LLM_KEY: ${TRAVEL_DESK_LLM_KEY}
+      AMP_AGENT_API_KEY: ${TRAVEL_DESK_TRACING_KEY}
+      AGENT_CLIENT_ID: ${TRAVEL_DESK_CLIENT_ID}
+      AGENT_CLIENT_SECRET: ${TRAVEL_DESK_CLIENT_SECRET}
+      TRAVEL_MONEY_URL: ${TRAVEL_MONEY_URL}
+      TRAVEL_INSURANCE_URL: ${TRAVEL_INSURANCE_URL}
+      TRAVEL_INSURANCE_OWN_URL: ${TRAVEL_INSURANCE_OWN_URL}
+      # CrewAI's own telemetry off; Agent Manager's tracing stays on.
+      CREWAI_DISABLE_TELEMETRY: "true"
+      CREWAI_TRACING_ENABLED: "false"
+
+  policy-advisor:
+    <<: *agent
+    build: {context: agents, args: {AGENT: policy-advisor}}
+    environment:
+      <<: *agent-env
+      LLM_URL: ${POLICY_ADVISOR_LLM_URL}
+      LLM_KEY: ${POLICY_ADVISOR_LLM_KEY}
+      AMP_AGENT_API_KEY: ${POLICY_ADVISOR_TRACING_KEY}
+      AGENT_CLIENT_ID: ${POLICY_ADVISOR_CLIENT_ID}
+      AGENT_CLIENT_SECRET: ${POLICY_ADVISOR_CLIENT_SECRET}
+    # The main demo's product catalogue.
+    volumes:
+      - ${CATALOGUE_FILE}:/app/catalogue.md:ro
+
   page:
     image: python:3.12-alpine
-    command: ["python", "-u", "/web/server.py"]
     restart: unless-stopped
-    mem_limit: 64m
+    mem_limit: 128m
+    command: ["python", "/web/server.py"]
+    working_dir: /web
+    # The page reads the fleet from the file that sets Agent Manager up.
     volumes:
       - ./web:/web:ro
+      - ./configure:/configure:ro
+      # A new key to the model, after a revocation, is kept here for the agents' next start.
+      - ./secrets.env:/secrets.env
     ports:
       - "${PAGE_PORT}:8610"
+    # Agent Manager's API and traces, and the main demo's MCP Gateway for the customer's account.
     extra_hosts:
-      - api.amp.localhost:host-gateway
-      - thunder.amp.localhost:host-gateway
+      - "api.amp.localhost:host-gateway"
+      - "thunder.amp.localhost:host-gateway"
+      - "traces.amp.localhost:host-gateway"
+      - "host.docker.internal:host-gateway"
     environment:
       BANK_NAME: ${BANK_NAME}
-      ASSISTANT_URL: http://assistant:8000
-      CARDS_AGENT_URL: http://cards-agent:8000
-      RELEASE_KEY: ${RELEASE_KEY}
+      CUSTOMER_NAME: ${CUSTOMER_NAME}
+      MODEL: ${MODEL}
       MAIN_DEMO_URL: ${MAIN_DEMO_URL}
+      CONCIERGE_URL: http://concierge:8000
+      CARDS_AGENT_URL: http://cards-agent:8000
+      TRAVEL_DESK_URL: http://travel-desk:8000
+      POLICY_ADVISOR_URL: http://policy-advisor:8000
+      MCP_URL: ${MCP_URL}
+      RELEASE_KEY: ${RELEASE_KEY}
       AMP_CONSOLE_URL: ${AMP_CONSOLE_URL}
       AMP_API_URL: ${AMP_API_URL}
+      AMP_TRACES_URL: ${AMP_TRACES_URL}
       AMP_TOKEN_URL: ${AMP_TOKEN_URL}
       AMP_CLIENT_ID: ${AMP_CLIENT_ID}
       AMP_CLIENT_SECRET: ${AMP_CLIENT_SECRET}
       AMP_ORG: ${AMP_ORG}
       AMP_PROJECT: ${AMP_PROJECT}
       AMP_ENVIRONMENT: ${AMP_ENVIRONMENT}
+    depends_on: [concierge]

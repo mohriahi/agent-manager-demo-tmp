@@ -1,0 +1,10 @@
+# The full llama-index package, not only llama-index-core: Agent Manager's
+# instrumentation traces LlamaIndex only when it is installed.
+llama-index==0.14.25
+llama-index-llms-anthropic==0.12.3
+llama-index-retrievers-bm25==0.8.0
+# The Anthropic SDK 2.x does not work with llama-index-llms-anthropic 0.12.3.
+anthropic==1.17.0
+fastapi==0.162.0
+uvicorn==0.54.0
+pyjwt[crypto]==2.15.1
