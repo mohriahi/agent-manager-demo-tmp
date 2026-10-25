@@ -253,7 +253,9 @@ gateways; the catalogue; where the model keys are; the model the agents use
   vetted or, in act 3, the partner's own (the main demo's `partner-agent-own`
   showcase).
 - Act 1's second caller uses the Policy Advisor's identity, from the page, to
-  show that a registered agent is refused too.
+  show that a registered agent is refused too. In act 2, the page tries v2
+  with a key of its own from Agent Manager, renewed whenever Agent Manager
+  redeploys v2.
 - Suspend and Re-deploy are the console's own buttons. After a Re-deploy, the
   Travel Desk takes a few seconds to load CrewAI before it answers.
 - Agent Manager allows at most 500m of CPU and 512 MiB of memory to an agent

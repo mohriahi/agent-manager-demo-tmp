@@ -289,15 +289,6 @@ def trial(agent, image, values):
     print("  %s: commit %s runs in %s, not promoted" % (agent["name"], image.rsplit("-", 1)[-1], TRIAL))
 
 
-def tester_key(agent, saved):
-    """The risk team's key to try the agent in the test environment, from the page."""
-    key = saved.get(variable(agent["name"], "TRIAL_KEY"))
-    if key:
-        return key
-    return check("key", *call("POST", "%s/agents/%s/environments/%s/api-keys" % (PROJECT_PATH, agent["name"], TRIAL),
-                              {"displayName": "Risk team"}))["apiKey"]
-
-
 def endpoint(agent, environment):
     return deployments(agent)[environment]["endpoints"][0]["url"]
 
@@ -357,7 +348,6 @@ def main():
     if v2:
         trial(cards, build(cards, v2, "v2"), values)
         keys[variable(cards["name"], "TRIAL_URL")] = endpoint(cards, TRIAL)
-        keys[variable(cards["name"], "TRIAL_KEY")] = tester_key(cards, saved)
     else:
         print("  no commit \"%s\" on GitHub yet: act 2 has no v2 to try" % fleet.READINESS["v2"])
 

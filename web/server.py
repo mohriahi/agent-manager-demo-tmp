@@ -40,7 +40,7 @@ TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": 
 SCOPES = ("amp:project:read amp:agent:read amp:agent:update amp:agent:suspend amp:agent:env-production "
           "amp:agent:env-non-production amp:environment:read amp:org:view amp:llm-provider:read "
           "amp:llm-provider:connect amp:llm-provider:configure-guardrail amp:monitor:create amp:monitor:read "
-          "amp:monitor:score-read amp:observability:trace-read")
+          "amp:monitor:score-read amp:observability:trace-read amp:agent:api-key-manage")
 HOSTED = [agent["name"] for agent in fleet.AGENTS if agent["runs"] == "platform"]
 TRAVEL_DESK = fleet.LIVE_RULE["agent"]
 PLANS = {"readiness": (fleet.READINESS, TRIAL), "incident": (fleet.INVESTIGATION, ENVIRONMENT)}
@@ -373,13 +373,34 @@ def account():
     return json.loads("".join(block.get("text", "") for block in result["content"]))
 
 
+_tester = {"key": None}
+
+
+def tester_key(fresh=False):
+    """The risk team's key to try a version in the test environment, from
+    Agent Manager. It drops the keys of a deployment it replaces, so a key it
+    refuses is replaced, under a new name: its gateway remembers the old one."""
+    if fresh or not _tester["key"]:
+        path = "%s/agents/%s/environments/%s/api-keys" % (API_PROJECT, fleet.READINESS["agent"], TRIAL)
+        for key in amp(path):
+            if key.get("displayName", "").startswith("Risk team"):
+                amp("%s/%s" % (path, key["name"]), "DELETE")
+        name = "Risk team " + time.strftime("%d%H%M%S")
+        _tester["key"] = amp(path, "POST", {"displayName": name})["apiKey"]
+        time.sleep(5)  # the gateway takes a new key a moment after Agent Manager hands it out
+    return _tester["key"]
+
+
 def try_v2(message):
     """Sends a message to the new version of the Cards Agent in the test
     environment, as a tester would with the console's Try It."""
     if not ENV.get("CARDS_AGENT_TRIAL_URL"):
         raise RuntimeError("No v2 in the test environment yet: run ./run.sh once v2 is on GitHub.")
-    status, reply = call(ENV["CARDS_AGENT_TRIAL_URL"] + "/chat", {"message": message, "session_id": "trial"},
-                         {"X-API-Key": ENV["CARDS_AGENT_TRIAL_KEY"]}, timeout=180)
+    for fresh in (False, True, True):
+        status, reply = call(ENV["CARDS_AGENT_TRIAL_URL"] + "/chat", {"message": message, "session_id": "trial"},
+                             {"X-API-Key": tester_key(fresh)}, timeout=180)
+        if status != 401:
+            break
     if status != 200:
         raise RuntimeError("The new version did not answer (HTTP %s)." % status)
     changed = [step for step in reply.get("steps", []) if step.get("name") == "change_package" and step.get("ok")]

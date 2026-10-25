@@ -84,7 +84,6 @@ services:
       CONCIERGE_URL: http://concierge:8000
       CARDS_AGENT_URL: ${CARDS_AGENT_URL}
       CARDS_AGENT_TRIAL_URL: ${CARDS_AGENT_TRIAL_URL}
-      CARDS_AGENT_TRIAL_KEY: ${CARDS_AGENT_TRIAL_KEY}
       # In act 1, the page tries to command the Cards Agent with the Policy Advisor's identity.
       AMP_AGENTID_TOKEN_ENDPOINT: ${AMP_AGENTID_TOKEN_ENDPOINT}
       POLICY_ADVISOR_CLIENT_ID: ${POLICY_ADVISOR_CLIENT_ID}
